@@ -235,7 +235,7 @@ function ProjectPage() {
           className={`fixed left-3 top-3 h-[calc(100vh-1.5rem)] z-10 transition-all duration-300 overflow-hidden ${
             isSidebarOpen ? 'w-[320px]' : 'w-0'
           } border rounded-2xl`}
-          style={{ borderColor: colors.lightGray, backgroundColor: colors.background }}
+          style={{ borderColor: colors.lightGray, backgroundColor: colors.blue }}
         >
           <div className="w-[320px] h-full flex flex-col">
             <div className="px-5 pt-5 flex items-center gap-4">
@@ -301,7 +301,7 @@ function ProjectPage() {
         <div
           className="h-[70px] flex items-center justify-center px-10 border-b w-full"
           style={{
-            borderBottomColor: colors.lightGray,
+            borderBottomColor: colors.lightGray, backgroundColor: colors.background
           }}
         >
           <h1
@@ -336,9 +336,7 @@ function ProjectPage() {
                     setIsAddModalOpen(true);
                   }}
                   className="text-white font-semibold text-lg px-4 py-1.5 rounded-xl transition-colors duration-100"
-                  style={{ backgroundColor: colors.lightBlue }}
-                  onMouseEnter={(e) => (e.target.style.backgroundColor = colors.primary)}
-                  onMouseLeave={(e) => (e.target.style.backgroundColor = colors.lightBlue)}
+                  style={{ backgroundColor: colors.primary }}
                 >
                   + Добавить страницу
                 </button>

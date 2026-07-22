@@ -68,7 +68,7 @@ function PageDetail() {
   };
 
   // Функция для рендеринга элементов
-  const renderElements = (items, level = 0) => {
+  const renderElements = (items, level = 0, className = '') => {
     const sortedItems = [...items].sort((a, b) => {
       if (a.sort_order !== undefined && b.sort_order !== undefined) {
         return a.sort_order - b.sort_order;
@@ -82,25 +82,25 @@ function PageDetail() {
       return (
         <div key={el.id}>
           <div 
-            className="py-1"
+            className={`py-1 ${className}`}
             style={{ 
               paddingLeft: `${level * 20}px`,
               color: colors.primary
             }}
           >
             {hasChildren ? (
-              <span style={{ fontWeight: '600', fontSize: '16px' }}>
+              <span style={{ fontWeight: '600' }}>
                 {el.name}
               </span>
             ) : (
-              <span style={{ fontSize: '15px' }}>
-                • {el.name}
+              <span>
+                 {el.name}
               </span>
             )}
           </div>
           {hasChildren && (
             <div>
-              {renderElements(el.children, level + 1)}
+              {renderElements(el.children, level + 1, className)}
             </div>
           )}
         </div>
@@ -172,42 +172,37 @@ function PageDetail() {
           </h1>
 
           {/* Ссылка */}
-          {pageUrl && (
+          {page.links && page.links.length > 0 && (
             <div className="mb-6">
-              <span 
-                className="text-2xl font-semibold"
-              >
-                Ссылка: 
+              <span className="text-2xl">
+                Ссылки: 
               </span>
-              <span 
-                className="text-2xl ml-2"
-                style={{ color: colors.primary }}
-              >
-                {pageUrl}
-              </span>
+              <div className="ml-12 mt-2 text-2xl">
+                  {page.links.map((link, index) => (
+                  <div key={index} style={{ color: colors.primary }}>
+                    {link.url}
+                  </div>
+                ))}
+              </div>
             </div>
-          )}
+            )}
 
-          {/* Содержание */}
+           {/* Содержание */}
           {elements.length > 0 && (
             <div className="mb-8">
               <h2 
-                className="text-2xl font-semibold mb-4"
+                className="text-2xl mb-4"
               >
                 Содержание:
               </h2>
-              <div className="pl-4">
-                {renderElements(elementTree)}
+              <div className="ml-12 mt-2 text-2xl">
+                {renderElements(elementTree, 0, 'text-2xl')}
               </div>
             </div>
           )}
-
           {/* Данные, которые могут обновляться */}
           <div>
-            <h2 
-              className="text-2xl font-semibold mb-4"
-              style={{ color: colors.primary }}
-            >
+            <h2 className="text-2xl mb-4">
               Данные, которые могут обновляться:
             </h2>
             
@@ -215,12 +210,11 @@ function PageDetail() {
               {/* Регулярно */}
               <div className="mb-4">
                 <span 
-                  className="text-lg font-semibold"
-                  style={{ color: colors.primary }}
+                  className="text-2xl"
                 >
                   Регулярно:
                 </span>
-                <div className="ml-6 mt-2">
+                <div className="ml-12 mt-2 text-2xl">
                   <div style={{ color: colors.primary }}>
                     • Возраст - ежегодно 1 августа
                   </div>
@@ -233,12 +227,11 @@ function PageDetail() {
               {/* При наступлении событий */}
               <div>
                 <span 
-                  className="text-lg font-semibold"
-                  style={{ color: colors.primary }}
+                  className="text-2xl"
                 >
                   При наступлении событий:
                 </span>
-                <div className="ml-6 mt-2">
+                <div className="ml-12 mt-2 text-2xl">
                   <div style={{ color: colors.primary }}>
                     • Вставка об общей квалификации преподавателей
                   </div>
