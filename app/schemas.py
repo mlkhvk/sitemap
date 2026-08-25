@@ -103,3 +103,10 @@ class TopicResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+class ElementEventResponse(BaseModel):
+    element_id: int
+    event_id: int
+    
+    class Config:
+        from_attributes = True

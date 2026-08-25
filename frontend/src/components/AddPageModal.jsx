@@ -1,970 +1,876 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { X, Plus, Trash2, ChevronRight, ChevronDown, ArrowRight } from 'lucide-react';
 import colors from '../colors';
-import { getEvents, createEvent, createElement, getEventElements, deleteElement, updateElement } from '../services/api';
 
-function AddPageModal({ isOpen, onClose, onSave, projectId, onSavePage, editingPage }) {
-  const [step, setStep] = useState(1);
+const AddPageModal = ({
+  isOpen,
+  onClose,
+  projectId,
+  onSavePage,
+  onUpdatePage,
+  editingPage = null,
+}) => {
+  // ============ STATE ============
   const [pageTitle, setPageTitle] = useState('');
-  const [links, setLinks] = useState(['']);
+  const [links, setLinks] = useState([]);
+  const [linkInput, setLinkInput] = useState('');
+
   const [elements, setElements] = useState([]);
-  const [newElementName, setNewElementName] = useState('');
-  const [activeSubInput, setActiveSubInput] = useState(null);
-  const [subElementName, setSubElementName] = useState('');
   const [selectedElementId, setSelectedElementId] = useState(null);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [isSavingElements, setIsSavingElements] = useState(false);
-  
-  // 4 этап
-  const [eventType, setEventType] = useState('irregular');
-  const [newEventName, setNewEventName] = useState('');
-  const [periodicity, setPeriodicity] = useState('');
-  const [startDate, setStartDate] = useState('');
+
   const [existingEvents, setExistingEvents] = useState([]);
-  const [selectedEventIds, setSelectedEventIds] = useState([]);
-  const [eventSearchQuery, setEventSearchQuery] = useState('');
-  const [showDatePicker, setShowDatePicker] = useState(false);
 
-  // Загрузка существующих событий
-  useEffect(() => {
-    if (isOpen && step === 4) {
-      fetchEvents();
-    }
-  }, [isOpen, step]);
+  const [isSaving, setIsSaving] = useState(false);
 
-  // Загрузка данных при редактировании
+  const [activeStep, setActiveStep] = useState(0);
+  const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
+  const [expandedElements, setExpandedElements] = useState(new Set());
+
+  // ============ ЗАГРУЗКА ДАННЫХ ============
+
   useEffect(() => {
     if (isOpen && editingPage) {
-      loadEditingData();
+      setPageTitle(editingPage.title || '');
+      setLinks(editingPage.links || []);
+      if (editingPage.elements) {
+        setElements(editingPage.elements);
+      }
+      fetchEvents();
+    } else if (isOpen) {
+      setPageTitle('');
+      setLinks([]);
+      setElements([]);
+      setSelectedElementId(null);
+      setActiveStep(0);
+      fetchEvents();
     }
   }, [isOpen, editingPage]);
 
-  const fetchEvents = async () => {
+  const fetchEvents = useCallback(async () => {
     try {
-      const response = await getEvents();
-      setExistingEvents(response.data);
+      setExistingEvents([
+        { id: 1, name: 'Клик' },
+        { id: 2, name: 'Наведение' },
+        { id: 3, name: 'Открытие' },
+        { id: 4, name: 'Закрытие' },
+        { id: 5, name: 'Отправка формы' },
+        { id: 6, name: 'Загрузка страницы' },
+      ]);
     } catch (error) {
       console.error('Ошибка загрузки событий:', error);
     }
-  };
+  }, []);
 
-  const loadEditingData = async () => {
-    try {
-      setPageTitle(editingPage.title || '');
-      setLinks(editingPage.links && editingPage.links.length > 0 ? editingPage.links : ['']);
-      
-      if (editingPage.elements && editingPage.elements.length > 0) {
-        setElements(editingPage.elements);
-        
-        // Выбираем первый элемент по умолчанию
-        const firstElementId = editingPage.elements[0]?.id;
-        if (firstElementId) {
-          setSelectedElementId(firstElementId);
-          await loadElementEvents(firstElementId);
-        }
+  const findElement = useCallback((id, tree = elements) => {
+    for (const element of tree) {
+      if (element.id === id) return element;
+      if (element.children) {
+        const found = findElement(id, element.children);
+        if (found) return found;
       }
-      
-      setStep(1);
-    } catch (error) {
-      console.error('Ошибка загрузки данных для редактирования:', error);
     }
-  };
+    return null;
+  }, [elements]);
 
-  const loadElementEvents = async (elementId) => {
-    try {
-      const response = await getEventElements(elementId);
-      const eventIds = response.data.map(ee => ee.event_id);
-      setSelectedEventIds(eventIds);
-    } catch (error) {
-      console.error('Ошибка загрузки событий элемента:', error);
-    }
-  };
-
-  // Сброс состояния при открытии модального окна (только для нового)
-  useEffect(() => {
-    if (isOpen && !editingPage) {
-      setStep(1);
-      setPageTitle('');
-      setLinks(['']);
-      setElements([]);
-      setNewElementName('');
-      setActiveSubInput(null);
-      setSubElementName('');
-      setSelectedElementId(null);
-      setSearchQuery('');
-      setEventType('irregular');
-      setNewEventName('');
-      setPeriodicity('');
-      setStartDate('');
-      setSelectedEventIds([]);
-      setEventSearchQuery('');
-      setIsSavingElements(false);
-    }
-  }, [isOpen, editingPage]);
-
-  if (!isOpen) return null;
-
-  const addLinkField = () => {
-    setLinks([...links, '']);
-  };
-
-  const updateLink = (index, value) => {
-    const newLinks = [...links];
-    newLinks[index] = value;
-    setLinks(newLinks);
-  };
-
-  const removeLink = (index) => {
-    const newLinks = links.filter((_, i) => i !== index);
-    setLinks(newLinks);
-  };
-
-  const clearLink = (index) => {
-    const newLinks = [...links];
-    newLinks[index] = '';
-    setLinks(newLinks);
-  };
-
-  const addElement = () => {
-    if (newElementName.trim()) {
-      setElements([...elements, { id: Date.now(), name: newElementName, parentId: null, children: [] }]);
-      setNewElementName('');
-    }
-  };
-
-  const clearNewElementName = () => {
-    setNewElementName('');
-  };
-
-  const clearNewEventName = () => {
-    setNewEventName('');
-  };
-
-  const addSubElement = (parentId) => {
-    if (subElementName.trim()) {
-      const addChild = (items) => {
-        return items.map(item => {
-          if (item.id === parentId) {
-            return {
-              ...item,
-              children: [...item.children, { id: Date.now(), name: subElementName.trim(), parentId: parentId, children: [] }]
-            };
-          }
-          if (item.children.length > 0) {
-            return { ...item, children: addChild(item.children) };
-          }
-          return item;
-        });
-      };
-      setElements(addChild(elements));
-      setSubElementName('');
-      setActiveSubInput(null);
-    }
-  };
-
-  const deleteElement = (elementId) => {
-    const deleteRecursive = (items) => {
-      return items.filter(item => {
-        if (item.id === elementId) return false;
-        if (item.children.length > 0) {
-          item.children = deleteRecursive(item.children);
+  const deleteElementFromTree = useCallback((id, tree = elements) => {
+    for (let i = 0; i < tree.length; i++) {
+      if (tree[i].id === id) {
+        tree.splice(i, 1);
+        setElements([...elements]);
+        if (selectedElementId === id) {
+          setSelectedElementId(null);
         }
         return true;
+      }
+      if (tree[i].children) {
+        const found = deleteElementFromTree(id, tree[i].children);
+        if (found) {
+          setElements([...elements]);
+          return true;
+        }
+      }
+    }
+    return false;
+  }, [elements, selectedElementId]);
+
+  const addElement = useCallback((name) => {
+    const newElement = {
+      id: Date.now(),
+      name: name,
+      parent_element_id: null,
+      children: [],
+      events: []
+    };
+    setElements([...elements, newElement]);
+  }, [elements]);
+
+  const addSubElement = useCallback((parentId, name) => {
+    const parent = findElement(parentId);
+    if (parent) {
+      const newElement = {
+        id: Date.now(),
+        name: name,
+        parent_element_id: parentId,
+        children: [],
+        events: []
+      };
+      parent.children.push(newElement);
+      setElements([...elements]);
+      setExpandedElements(prev => new Set(prev).add(parentId));
+    }
+  }, [elements, findElement]);
+
+  const handleCreateEvent = useCallback(async (eventName) => {
+    if (!eventName.trim()) {
+      setSnackbar({
+        open: true,
+        message: 'Введите название события',
+        severity: 'warning'
       });
-    };
-    setElements(deleteRecursive(elements));
-    if (activeSubInput === elementId) {
-      setActiveSubInput(null);
+      return null;
     }
-  };
-
-  // Сохранение элементов в БД по одному
-  const saveElementsToDatabase = async (pageId) => {
-    if (elements.length === 0) return [];
-    
-    const savedElementsMap = new Map();
-    const savedIds = [];
-    
-    const saveElementRecursive = async (element, parentRealId = null) => {
-      let elementData;
-      let numericPageId;
-      
-      try {
-        numericPageId = typeof pageId === 'object' ? pageId.id : parseInt(pageId, 10);
-        
-        elementData = {
-          name: element.name
-        };
-        
-        if (parentRealId !== null && parentRealId !== undefined) {
-          elementData.parent_id = parentRealId;
-        }
-        
-        const response = await createElement(numericPageId, elementData);
-        const savedElement = response.data;
-        
-        savedElementsMap.set(element.id, savedElement.id);
-        savedIds.push(savedElement.id);
-        
-        for (const child of element.children) {
-          await saveElementRecursive(child, savedElement.id);
-        }
-        
-        return savedElement;
-      } catch (error) {
-        console.error('Ошибка сохранения элемента:', error.response?.data || error.message);
-        throw error;
-      }
-    };
     
     try {
-      for (const element of elements) {
-        await saveElementRecursive(element, null);
-      }
-      
-      return savedIds;
-    } catch (error) {
-      console.error('Ошибка сохранения элементов:', error);
-      throw new Error('Не удалось сохранить элементы');
-    }
-  };
-
-  // Обновление элементов при редактировании
-  const updateElementsInDatabase = async (pageId) => {
-    if (elements.length === 0) return [];
-    
-    const savedElementsMap = new Map();
-    const savedIds = [];
-    
-    const saveElementRecursive = async (element, parentRealId = null) => {
-      try {
-        const numericPageId = typeof pageId === 'object' ? pageId.id : parseInt(pageId, 10);
-        
-        const elementData = {
-          name: element.name
-        };
-        
-        if (parentRealId !== null && parentRealId !== undefined) {
-          elementData.parent_id = parentRealId;
-        }
-        
-        const response = await createElement(numericPageId, elementData);
-        const savedElement = response.data;
-        
-        savedElementsMap.set(element.id, savedElement.id);
-        savedIds.push(savedElement.id);
-        
-        for (const child of element.children) {
-          await saveElementRecursive(child, savedElement.id);
-        }
-        
-        return savedElement;
-      } catch (error) {
-        console.error('Ошибка сохранения элемента:', error);
-        throw error;
-      }
-    };
-    
-    try {
-      for (const element of elements) {
-        await saveElementRecursive(element, null);
-      }
-      
-      return savedIds;
-    } catch (error) {
-      console.error('Ошибка обновления элементов:', error);
-      throw new Error('Не удалось обновить элементы');
-    }
-  };
-
-  const handleSavePageAndContinue = async () => {
-    if (!selectedElementId) {
-      alert('Выберите элемент');
-      return;
-    }
-    
-    setIsSavingElements(true);
-    
-    try {
-      const validProjectId = projectId?.id || projectId;
-      
-      const pageForBackend = {
-        title: pageTitle,
-        links: links.filter(l => l.trim()).map(link => ({ url: link }))
+      const newEvent = {
+        id: Date.now(),
+        name: eventName.trim()
       };
       
-      const pageResponse = await onSavePage(validProjectId, pageForBackend);
-      const savedPage = pageResponse.data || pageResponse;
-      const pageId = savedPage.id;
+      setExistingEvents(prev => [...prev, newEvent]);
       
-      const savedElementIds = await saveElementsToDatabase(pageId);
-      
-      if (savedElementIds && savedElementIds.length > 0) {
-        setSelectedElementId(savedElementIds[0]);
-      }
-      
-      setStep(4);
-    } catch (error) {
-      console.error('Ошибка сохранения страницы и элементов:', error);
-      alert('Не удалось сохранить страницу и элементы: ' + (error.response?.data?.message || error.message || 'Неизвестная ошибка'));
-    } finally {
-      setIsSavingElements(false);
-    }
-  };
-
-  const handleUpdatePageAndContinue = async () => {
-    if (!selectedElementId) {
-      alert('Выберите элемент');
-      return;
-    }
-    
-    setIsSavingElements(true);
-    
-    try {
-      const pageForBackend = {
-        title: pageTitle,
-        links: links.filter(l => l.trim()).map(link => ({ url: link }))
-      };
-      
-      await onSavePage(editingPage.id, pageForBackend);
-      
-      // Удаляем старые элементы
-      const existingElements = await getEventElements(editingPage.id);
-      if (existingElements.data) {
-        for (const elem of existingElements.data) {
-          if (elem.id) {
-            try {
-              await deleteElement(elem.id);
-            } catch (e) {
-              console.error('Ошибка удаления элемента:', e);
-            }
-          }
+      if (selectedElementId) {
+        const element = findElement(selectedElementId);
+        if (element) {
+          element.events.push(newEvent);
+          setElements([...elements]);
         }
       }
       
-      const savedElementIds = await updateElementsInDatabase(editingPage.id);
+      setSnackbar({
+        open: true,
+        message: 'Событие создано и добавлено к элементу',
+        severity: 'success'
+      });
       
-      if (savedElementIds && savedElementIds.length > 0) {
-        setSelectedElementId(savedElementIds[0]);
-      }
-      
-      setStep(4);
-    } catch (error) {
-      console.error('Ошибка обновления страницы и элементов:', error);
-      alert('Не удалось обновить страницу и элементы: ' + (error.response?.data?.message || error.message));
-    } finally {
-      setIsSavingElements(false);
-    }
-  };
-
-  const handleNext = () => {
-    if (step === 1 && pageTitle.trim() && links.some(l => l.trim())) {
-      setStep(2);
-    } else if (step === 2) {
-      setStep(3);
-    }
-  };
-
-  const handleBack = () => {
-    setStep(step - 1);
-    setActiveSubInput(null);
-    setSubElementName('');
-  };
-
-  const handleClose = () => {
-    const hasData = pageTitle.trim() || links.some(l => l.trim()) || elements.length > 0;
-    if (hasData && step < 3 && !editingPage) {
-      if (window.confirm('Вы уверены, что хотите закрыть? Данные не будут сохранены.')) {
-        onClose();
-      }
-    } else {
-      onClose();
-    }
-  };
-
-  const handleCreateEvent = async () => {
-    if (!newEventName.trim()) {
-      alert('Введите название события');
-      return;
-    }
-    
-    if (eventType === 'regular') {
-      if (!periodicity || !startDate) {
-        alert('Заполните все поля для регулярного события');
-        return;
-      }
-    }
-    
-    try {
-      let eventData;
-      if (eventType === 'regular') {
-        eventData = {
-          name: newEventName,
-          event_type: 'regular',
-          periodicity: periodicity,
-          start_date: startDate,
-          topic_id: null
-        };
-      } else {
-        eventData = {
-          name: newEventName,
-          event_type: 'irregular',
-          periodicity: null,
-          start_date: null,
-          topic_id: null
-        };
-      }
-      
-      const elementId = selectedElementId;
-      if (!elementId) {
-        alert('Элемент не выбран');
-        return;
-      }
-      
-      await createEvent({ event: eventData, element_ids: [elementId] });
-      
-      await fetchEvents();
-      setNewEventName('');
-      setPeriodicity('');
-      setStartDate('');
+      return newEvent;
     } catch (error) {
       console.error('Ошибка создания события:', error);
-      alert('Не удалось создать событие');
+      setSnackbar({
+        open: true,
+        message: 'Не удалось создать событие',
+        severity: 'error'
+      });
+      return null;
     }
+  }, [selectedElementId, findElement, elements]);
+
+  const toggleEventSelection = useCallback((eventId) => {
+    if (!selectedElementId) return;
+    
+    const element = findElement(selectedElementId);
+    if (!element) return;
+    
+    const eventIndex = element.events.findIndex(e => e.id === eventId);
+    
+    if (eventIndex === -1) {
+      const event = existingEvents.find(e => e.id === eventId);
+      if (event) {
+        element.events.push(event);
+        setSnackbar({
+          open: true,
+          message: `Событие "${event.name}" добавлено к элементу`,
+          severity: 'success'
+        });
+      }
+    } else {
+      element.events.splice(eventIndex, 1);
+      setSnackbar({
+        open: true,
+        message: 'Событие удалено из элемента',
+        severity: 'info'
+      });
+    }
+    
+    setElements([...elements]);
+  }, [selectedElementId, findElement, existingEvents, elements]);
+
+  const handleAddLink = useCallback(() => {
+    if (linkInput.trim()) {
+      setLinks([...links, { url: linkInput.trim() }]);
+      setLinkInput('');
+    }
+  }, [linkInput, links]);
+
+  const handleRemoveLink = useCallback((index) => {
+    const newLinks = links.filter((_, i) => i !== index);
+    setLinks(newLinks);
+  }, [links]);
+
+  const handleSave = useCallback(async () => {
+    if (isSaving) return;
+    
+    if (!pageTitle.trim()) {
+      setSnackbar({
+        open: true,
+        message: 'Введите название страницы',
+        severity: 'warning'
+      });
+      setActiveStep(0);
+      return;
+    }
+    
+    if (elements.length === 0) {
+      setSnackbar({
+        open: true,
+        message: 'Добавьте хотя бы один элемент',
+        severity: 'warning'
+      });
+      setActiveStep(1);
+      return;
+    }
+    
+    setIsSaving(true);
+    try {
+      const pageData = {
+        title: pageTitle,
+        links: links,
+        elements: elements,
+        project_id: Number(projectId),
+        parent_page_id: null,
+        sort_order: 0,
+      };
+      
+      if (editingPage) {
+        await onUpdatePage(editingPage.id, pageData);
+        setSnackbar({
+          open: true,
+          message: 'Страница успешно обновлена!',
+          severity: 'success'
+        });
+      } else {
+        await onSavePage(pageData);
+        setSnackbar({
+          open: true,
+          message: 'Страница успешно создана!',
+          severity: 'success'
+        });
+      }
+      
+      setTimeout(() => {
+        onClose(true);
+      }, 1500);
+      
+    } catch (error) {
+      console.error('Ошибка сохранения:', error);
+      setSnackbar({
+        open: true,
+        message: 'Ошибка при сохранении страницы',
+        severity: 'error'
+      });
+    } finally {
+      setIsSaving(false);
+    }
+  }, [isSaving, pageTitle, links, elements, editingPage, projectId, onSavePage, onUpdatePage, onClose]);
+
+  const renderElementTree = (tree = elements, level = 0) => {
+    return tree.map(element => {
+      const hasChildren = element.children && element.children.length > 0;
+      const isExpanded = expandedElements.has(element.id);
+      const isSelected = selectedElementId === element.id;
+      
+      return (
+        <div key={element.id} style={{ marginLeft: `${level * 20}px` }} className="mb-1.5">
+          <div
+            className={`flex items-center p-2 rounded-lg cursor-pointer gap-2 transition-all`}
+            style={{
+              backgroundColor: isSelected ? colors.blue : colors.white,
+              border: isSelected ? `2px solid ${colors.primary}` : `1px solid ${colors.lightGray}`,
+            }}
+            onClick={() => setSelectedElementId(element.id)}
+          >
+            {hasChildren && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setExpandedElements(prev => {
+                    const newSet = new Set(prev);
+                    if (isExpanded) {
+                      newSet.delete(element.id);
+                    } else {
+                      newSet.add(element.id);
+                    }
+                    return newSet;
+                  });
+                }}
+                className="bg-transparent border-none cursor-pointer p-0.5 flex items-center"
+              >
+                {isExpanded ? 
+                  <ChevronDown size={16} style={{ color: colors.primary }} /> : 
+                  <ChevronRight size={16} style={{ color: colors.primary }} />
+                }
+              </button>
+            )}
+            
+            <span className="text-base" style={{ 
+              color: colors.primary,
+              fontWeight: isSelected ? '600' : '400'
+            }}>
+              {element.name}
+            </span>
+            
+            {element.events && element.events.length > 0 && (
+              <span className="px-2.5 py-0.5 rounded-full text-xs ml-auto" style={{
+                backgroundColor: colors.primary,
+                color: colors.white,
+              }}>
+                {element.events.length} событий
+              </span>
+            )}
+            
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                const name = prompt('Введите имя дочернего элемента:');
+                if (name) addSubElement(element.id, name);
+              }}
+              className="bg-transparent border-none cursor-pointer p-1"
+              style={{ color: colors.primary }}
+            >
+              <Plus size={16} />
+            </button>
+            
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                if (window.confirm(`Удалить элемент "${element.name}"?`)) {
+                  deleteElementFromTree(element.id);
+                }
+              }}
+              className="bg-transparent border-none cursor-pointer p-1"
+              style={{ color: colors.error }}
+            >
+              <Trash2 size={16} />
+            </button>
+          </div>
+          
+          {hasChildren && isExpanded && (
+            <div className="mt-1">
+              {renderElementTree(element.children, level + 1)}
+            </div>
+          )}
+        </div>
+      );
+    });
   };
 
-  const toggleEventSelection = (eventId) => {
-    setSelectedEventIds(prev =>
-      prev.includes(eventId)
-        ? prev.filter(id => id !== eventId)
-        : [...prev, eventId]
+  // ============ РЕНДЕР ШАГА 1 ============
+
+  const renderStep1 = () => {
+    return (
+      <div className="flex flex-col min-h-[400px]">
+        <h2 className="text-2xl font-semibold text-center mb-8" style={{ color: colors.primary }}>
+          Добавление страницы
+        </h2>
+
+        <div className="mb-6">
+          <label className="block text-base font-medium mb-2" style={{ color: colors.black }}>
+            Введите название страницы:
+          </label>
+          <input
+            type="text"
+            value={pageTitle}
+            onChange={(e) => setPageTitle(e.target.value)}
+            placeholder="Пример: Контакты"
+            className="w-full px-4 py-3 rounded-lg text-base outline-none transition-colors bg-white"
+            style={{
+              border: `1px solid ${colors.lightGray}`,
+              color: colors.black,
+            }}
+            onFocus={(e) => e.target.style.borderColor = colors.primary}
+            onBlur={(e) => e.target.style.borderColor = colors.lightGray}
+          />
+        </div>
+
+        <div className="mb-4">
+          <label className="block text-base font-medium mb-2" style={{ color: colors.black }}>
+            Введите полную ссылку страницы:
+          </label>
+          <input
+            type="text"
+            value={linkInput}
+            onChange={(e) => setLinkInput(e.target.value)}
+            onKeyPress={(e) => e.key === 'Enter' && handleAddLink()}
+            placeholder="Пример: /science/schools"
+            className="w-full px-4 py-3 rounded-lg text-base outline-none transition-colors bg-white"
+            style={{
+              border: `1px solid ${colors.lightGray}`,
+              color: colors.black,
+            }}
+            onFocus={(e) => e.target.style.borderColor = colors.primary}
+            onBlur={(e) => e.target.style.borderColor = colors.lightGray}
+          />
+        </div>
+
+        <button
+          onClick={handleAddLink}
+          className="flex items-center gap-2 bg-transparent border-none text-base font-medium p-2 mb-4 self-start transition-opacity hover:opacity-70"
+          style={{ color: colors.primary }}
+        >
+          <Plus size={20} />
+          Добавить ещё ссылки
+        </button>
+
+        {links.length > 0 && (
+          <div className="mb-6">
+            {links.map((link, index) => (
+              <div
+                key={index}
+                className="flex justify-between items-center px-3.5 py-2.5 rounded-lg mb-1.5"
+                style={{
+                  backgroundColor: colors.blue,
+                  border: `1px solid ${colors.lightGray}`,
+                }}
+              >
+                <span className="text-sm" style={{ color: colors.black }}>{link.url}</span>
+                <button
+                  onClick={() => handleRemoveLink(index)}
+                  className="bg-transparent border-none cursor-pointer p-1"
+                  style={{ color: colors.error }}
+                >
+                  <Trash2 size={16} />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div className="flex justify-between items-center mt-auto pt-6" style={{ borderTop: `1px solid ${colors.lightGray}` }}>
+          <span className="text-sm font-medium" style={{ color: colors.primary }}>1/4</span>
+          <button
+            onClick={() => setActiveStep(1)}
+            disabled={!pageTitle.trim()}
+            className={`flex items-center gap-2 px-7 py-2.5 rounded-lg text-base font-medium transition-all ${
+              pageTitle.trim() ? 'cursor-pointer' : 'cursor-not-allowed'
+            }`}
+            style={{
+              backgroundColor: pageTitle.trim() ? colors.primary : colors.lightGray,
+              color: pageTitle.trim() ? colors.white : colors.secondaryText,
+            }}
+          >
+            Далее
+            <ArrowRight size={20} />
+          </button>
+        </div>
+      </div>
     );
   };
 
-  const handleSelectElement = (elementId) => {
-    setSelectedElementId(elementId);
-    if (editingPage) {
-      loadElementEvents(elementId);
-    }
-  };
+  // ============ РЕНДЕР ШАГА 2 ============
 
-  const handleFinalSave = async () => {
-    onClose(true);
-  };
-
-  const getAllElements = (items, level = 0) => {
-    let result = [];
-    items.forEach(item => {
-      result.push({ id: item.id, name: item.name, level: level });
-      if (item.children && item.children.length > 0) {
-        result = [...result, ...getAllElements(item.children, level + 1)];
-      }
-    });
-    return result;
-  };
-
-  const renderElements = (items, level = 0) => {
-    return items.map((el) => (
-      <div key={el.id} className={`${level > 0 ? 'ml-6' : ''} mb-2`}>
-        <div className="flex items-center justify-between py-2">
-          <span className="text-lg" style={{ color: colors.primary }}>
-            {el.name}
-          </span>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => setActiveSubInput(activeSubInput === el.id ? null : el.id)}
-              className="w-6 h-6 font-bold text-xl"
-              style={{ color: colors.lightBlue }}
-            >
-              +
-            </button>
-            <button
-              onClick={() => deleteElement(el.id)}
-              className="w-6 h-6 font-bold text-lg"
-              style={{ color: colors.error }}
-            >
-              ×
-            </button>
-          </div>
+  const renderStep2 = () => {
+    return (
+      <div className="flex flex-col min-h-[400px]">
+        <h3 className="text-xl font-semibold text-center mb-4" style={{ color: colors.primary }}>
+          Добавление элементов
+        </h3>
+        
+        <div className="mb-4 flex gap-2">
+          <input
+            type="text"
+            id="element-name-input"
+            placeholder="Введите имя элемента"
+            className="flex-1 px-3 py-2.5 rounded-lg text-base outline-none transition-colors bg-white"
+            style={{
+              border: `1px solid ${colors.lightGray}`,
+              color: colors.black,
+            }}
+            onFocus={(e) => e.target.style.borderColor = colors.primary}
+            onBlur={(e) => e.target.style.borderColor = colors.lightGray}
+            onKeyPress={(e) => {
+              if (e.key === 'Enter') {
+                const name = e.target.value;
+                if (name) {
+                  addElement(name);
+                  e.target.value = '';
+                }
+              }
+            }}
+          />
+          <button
+            onClick={() => {
+              const input = document.getElementById('element-name-input');
+              if (input && input.value) {
+                addElement(input.value);
+                input.value = '';
+              }
+            }}
+            className="border-none rounded-lg cursor-pointer font-medium px-5 py-2.5"
+            style={{
+              backgroundColor: colors.primary,
+              color: colors.white,
+            }}
+          >
+            <Plus size={20} />
+          </button>
         </div>
         
-        {activeSubInput === el.id && (
-          <div className="flex gap-2 mt-1 ml-4 mb-2">
-            <input
-              type="text"
-              value={subElementName}
-              onChange={(e) => setSubElementName(e.target.value)}
-              placeholder="Название подэлемента"
-              className="flex-1 px-3 py-1 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400 text-lg"
-              style={{ borderColor: colors.lightGray }}
-              autoFocus
-              onKeyPress={(e) => e.key === 'Enter' && addSubElement(el.id)}
-            />
-            <button
-              onClick={() => addSubElement(el.id)}
-              className="px-3 py-1 rounded-lg transition-colors text-white text-lg"
-              style={{ backgroundColor: colors.lightBlue }}
-              onMouseEnter={(e) => e.target.style.backgroundColor = colors.primary}
-              onMouseLeave={(e) => e.target.style.backgroundColor = colors.lightBlue}
-            >
-              Добавить
-            </button>
-          </div>
-        )}
-        
-        {el.children.length > 0 && (
-          <div className="ml-4 space-y-1 text-lg">
-            {renderElements(el.children, level + 1)}
-          </div>
-        )}
-      </div>
-    ));
-  };
-
-  const allEvents = existingEvents;
-  const filteredEvents = allEvents.filter(event =>
-    event.name.toLowerCase().includes(eventSearchQuery.toLowerCase())
-  );
-
-  return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-xl w-[700px] max-h-[80vh] overflow-hidden flex flex-col shadow-xl relative" onClick={(e) => e.stopPropagation()}>
-        
-        <button
-          onClick={handleClose}
-          className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 transition-colors text-2xl z-10"
-        >
-          ×
-        </button>
-
-        <div className="px-6 py-6 text-center" style={{ borderColor: colors.lightGray }}>
-          <h2 className="text-2xl font-semibold" style={{ color: colors.primary }}>
-            {editingPage ? 'Редактирование страницы' : 'Добавление страницы'}
-          </h2>
-        </div>
-
-        <div className="flex-1 overflow-y-auto p-6">
-          {/* Шаг 1 */}
-          {step === 1 && (
-            <div>
-              <div className="mb-4">
-                <label className="block font-semibold mb-2 text-lg" style={{ color: colors.primary }}>
-                  Введите название страницы:
-                </label>
-                <div className="relative">
-                  <input
-                    type="text"
-                    value={pageTitle}
-                    onChange={(e) => setPageTitle(e.target.value)}
-                    placeholder="Пример: Контакты"
-                    className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400 pr-10"
-                    style={{ borderColor: colors.lightGray }}
-                  />
-                  {pageTitle && (
-                    <button
-                      onClick={() => setPageTitle('')}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                    >
-                      ×
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              <div className="mb-4">
-                <label className="block font-semibold mb-2 text-lg" style={{ color: colors.primary }}>
-                  Введите полную ссылку страницы:
-                </label>
-                {links.map((link, idx) => (
-                  <div key={idx} className="flex gap-2 mb-2">
-                    <div className="flex-1 relative">
-                      <input
-                        type="text"
-                        value={link}
-                        onChange={(e) => updateLink(idx, e.target.value)}
-                        placeholder="Пример: /service/schools"
-                        className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400 pr-10"
-                        style={{ borderColor: colors.lightGray }}
-                      />
-                      {link && (
-                        <button
-                          onClick={() => clearLink(idx)}
-                          className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                        >
-                          ×
-                        </button>
-                      )}
-                    </div>
-                    {links.length > 1 && (
-                      <button
-                        onClick={() => removeLink(idx)}
-                        className="text-red-500 hover:text-red-700 px-3"
-                      >
-                        ✕
-                      </button>
-                    )}
-                  </div>
-                ))}
-                <button
-                  onClick={addLinkField}
-                  className="text-lg mt-1 hover:underline"
-                  style={{ color: colors.lightBlue }}
-                >
-                  + Добавить ещё ссылку
-                </button>
-              </div>
-            </div>
+        <div className="rounded-lg p-4 max-h-[300px] overflow-auto flex-1" style={{
+          border: `1px solid ${colors.lightGray}`,
+          backgroundColor: colors.white,
+        }}>
+          {elements.length === 0 ? (
+            <p className="text-center py-5" style={{ color: colors.secondaryText }}>
+              Нет элементов. Добавьте корневой элемент.
+            </p>
+          ) : (
+            renderElementTree()
           )}
+        </div>
+        
+        <div className="flex justify-between items-center mt-5 pt-5" style={{ borderTop: `1px solid ${colors.lightGray}` }}>
+          <span className="text-sm font-medium" style={{ color: colors.primary }}>2/4</span>
+          <div className="flex gap-3">
+            <button
+              onClick={() => setActiveStep(0)}
+              className="px-6 py-2.5 border-none rounded-lg cursor-pointer font-medium"
+              style={{
+                backgroundColor: colors.lightGray,
+                color: colors.black,
+              }}
+            >
+              Назад
+            </button>
+            <button
+              onClick={() => setActiveStep(2)}
+              disabled={elements.length === 0}
+              className={`flex items-center gap-2 px-6 py-2.5 rounded-lg font-medium ${
+                elements.length > 0 ? 'cursor-pointer' : 'cursor-not-allowed'
+              }`}
+              style={{
+                backgroundColor: elements.length > 0 ? colors.primary : colors.lightGray,
+                color: elements.length > 0 ? colors.white : colors.secondaryText,
+              }}
+            >
+              Далее
+              <ArrowRight size={20} />
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
 
-          {/* Шаг 2 */}
-          {step === 2 && (
-            <div>
-              <div className="mb-6">
-                <label className="block text-xl font-semibold mb-4" style={{ color: colors.primary }}>
-                  Добавьте содержание страницы:
-                </label>
-                
-                <div className="flex gap-2 mb-4">
-                  <div className="flex-1 relative">
-                    <input
-                      type="text"
-                      value={newElementName}
-                      onChange={(e) => setNewElementName(e.target.value)}
-                      placeholder="Название элемента (например: Направления)"
-                      className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400 pr-10"
-                      style={{ borderColor: colors.lightGray }}
-                      onKeyPress={(e) => e.key === 'Enter' && addElement()}
-                    />
-                    {newElementName && (
+  // ============ РЕНДЕР ШАГА 3 ============
+
+  const renderStep3 = () => {
+    return (
+      <div className="flex flex-col min-h-[400px]">
+        <h3 className="text-xl font-semibold text-center mb-4" style={{ color: colors.primary }}>
+          Выбор элемента для работы с событиями
+        </h3>
+        
+        <p className="text-center mb-4" style={{ color: colors.secondaryText }}>
+          Выберите элемент из списка, чтобы управлять его событиями
+        </p>
+        
+        <div className="rounded-lg p-4 max-h-[300px] overflow-auto flex-1" style={{
+          border: `1px solid ${colors.lightGray}`,
+          backgroundColor: colors.white,
+        }}>
+          {elements.length === 0 ? (
+            <p className="text-center py-5" style={{ color: colors.secondaryText }}>
+              Нет элементов для выбора
+            </p>
+          ) : (
+            renderElementTree()
+          )}
+        </div>
+        
+        {selectedElementId && (
+          <div className="mt-3 px-4 py-3 rounded-lg" style={{
+            backgroundColor: colors.blue,
+            border: `1px solid ${colors.primary}`,
+          }}>
+            Выбран элемент: <strong style={{ color: colors.primary }}>{findElement(selectedElementId)?.name}</strong>
+          </div>
+        )}
+        
+        <div className="flex justify-between items-center mt-5 pt-5" style={{ borderTop: `1px solid ${colors.lightGray}` }}>
+          <span className="text-sm font-medium" style={{ color: colors.primary }}>3/4</span>
+          <div className="flex gap-3">
+            <button
+              onClick={() => setActiveStep(1)}
+              className="px-6 py-2.5 border-none rounded-lg cursor-pointer font-medium"
+              style={{
+                backgroundColor: colors.lightGray,
+                color: colors.black,
+              }}
+            >
+              Назад
+            </button>
+            <button
+              onClick={() => setActiveStep(3)}
+              disabled={!selectedElementId}
+              className={`flex items-center gap-2 px-6 py-2.5 rounded-lg font-medium ${
+                selectedElementId ? 'cursor-pointer' : 'cursor-not-allowed'
+              }`}
+              style={{
+                backgroundColor: selectedElementId ? colors.primary : colors.lightGray,
+                color: selectedElementId ? colors.white : colors.secondaryText,
+              }}
+            >
+              Далее
+              <ArrowRight size={20} />
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // ============ РЕНДЕР ШАГА 4 ============
+
+  const renderStep4 = () => {
+    return (
+      <div className="flex flex-col min-h-[400px]">
+        <h3 className="text-xl font-semibold text-center mb-4" style={{ color: colors.primary }}>
+          Управление событиями
+        </h3>
+        
+        {selectedElementId ? (
+          <div className="flex-1">
+            <div className="px-4 py-3 rounded-lg mb-4" style={{
+              backgroundColor: colors.blue,
+              border: `1px solid ${colors.primary}`,
+            }}>
+              Управление событиями для элемента: <strong style={{ color: colors.primary }}>{findElement(selectedElementId)?.name}</strong>
+            </div>
+            
+            <div className="rounded-lg p-4 mb-4" style={{
+              border: `1px solid ${colors.lightGray}`,
+              backgroundColor: colors.white,
+            }}>
+              <h4 className="text-base font-semibold mb-3" style={{ color: colors.black }}>
+                Текущие события элемента:
+              </h4>
+              <div className="flex flex-wrap gap-2">
+                {findElement(selectedElementId)?.events?.length > 0 ? (
+                  findElement(selectedElementId).events.map((event) => (
+                    <div
+                      key={event.id}
+                      className="px-3.5 py-1.5 rounded-full flex items-center gap-2 text-sm"
+                      style={{
+                        backgroundColor: colors.primary,
+                        color: colors.white,
+                      }}
+                    >
+                      {event.name}
                       <button
-                        onClick={clearNewElementName}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                        onClick={() => toggleEventSelection(event.id)}
+                        className="bg-transparent border-none text-white cursor-pointer text-base p-0 px-1"
                       >
                         ×
                       </button>
-                    )}
-                  </div>
-                </div>
-                
-                <div className="space-y-2 mb-4 max-h-[300px] overflow-y-auto border rounded-lg p-2" style={{ borderColor: colors.lightGray }}>
-                  {elements.length === 0 ? (
-                    <div className="text-center py-4" style={{ color: colors.secondaryText }}>
-                      Нет элементов. Добавьте первый элемент выше.
                     </div>
-                  ) : (
-                    renderElements(elements)
-                  )}
-                </div>
-                
+                  ))
+                ) : (
+                  <p style={{ color: colors.secondaryText }}>Нет привязанных событий</p>
+                )}
+              </div>
+            </div>
+            
+            <hr className="my-4" style={{ borderColor: colors.lightGray }} />
+            
+            <div className="mb-4">
+              <h4 className="text-base font-semibold mb-2" style={{ color: colors.black }}>
+                Создать новое событие:
+              </h4>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  id="new-event-name"
+                  placeholder="Название события"
+                  className="flex-1 px-3 py-2.5 rounded-lg text-base outline-none transition-colors bg-white"
+                  style={{
+                    border: `1px solid ${colors.lightGray}`,
+                    color: colors.black,
+                  }}
+                  onFocus={(e) => e.target.style.borderColor = colors.primary}
+                  onBlur={(e) => e.target.style.borderColor = colors.lightGray}
+                  onKeyPress={(e) => {
+                    if (e.key === 'Enter') {
+                      handleCreateEvent(e.target.value);
+                      e.target.value = '';
+                    }
+                  }}
+                />
                 <button
-                  onClick={addElement}
-                  disabled={!newElementName.trim()}
-                  className="w-full py-2 rounded-lg transition-colors text-lg font-semibold text-white disabled:opacity-50 disabled:cursor-not-allowed"
-                  style={{ backgroundColor: colors.lightBlue }}
-                  onMouseEnter={(e) => e.target.style.backgroundColor = colors.primary}
-                  onMouseLeave={(e) => e.target.style.backgroundColor = colors.lightBlue}
+                  onClick={() => {
+                    const input = document.getElementById('new-event-name');
+                    if (input) {
+                      handleCreateEvent(input.value);
+                      input.value = '';
+                    }
+                  }}
+                  className="border-none rounded-lg cursor-pointer font-medium px-5 py-2.5"
+                  style={{
+                    backgroundColor: colors.success,
+                    color: colors.white,
+                  }}
                 >
                   Создать
                 </button>
               </div>
             </div>
-          )}
-
-          {/* Шаг 3 */}
-          {step === 3 && (
+            
             <div>
-              <div className="mb-4">
-                <p className="text-lg mb-3" style={{ color: colors.primary }}>
-                  Выберите элемент для привязки событий
-                </p>
-                
-                <input
-                  type="text"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Поиск..."
-                  className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400 mb-4"
-                  style={{ borderColor: colors.lightGray }}
-                />
-                
-                <div className="max-h-[300px] overflow-y-auto border rounded-lg p-2" style={{ borderColor: colors.lightGray }}>
-                  {elements.length === 0 ? (
-                    <div className="text-center py-8" style={{ color: colors.secondaryText }}>
-                      Нет элементов для выбора
-                    </div>
-                  ) : (() => {
-                    const allElems = getAllElements(elements);
-                    const filtered = searchQuery.trim() === '' 
-                      ? allElems 
-                      : allElems.filter(el => 
-                          el.name.toLowerCase().includes(searchQuery.toLowerCase())
-                        );
-                    
-                    if (filtered.length === 0) {
-                      return (
-                        <div className="text-center py-8" style={{ color: colors.secondaryText }}>
-                          Ничего не найдено
-                        </div>
-                      );
-                    }
-                    
-                    return filtered.map((el) => (
-                      <div
-                        key={el.id}
-                        onClick={() => handleSelectElement(el.id)}
-                        className={`p-3 rounded-lg cursor-pointer transition-all duration-200 ${
-                          selectedElementId === el.id
-                            ? 'text-white'
-                            : 'hover:bg-gray-100'
-                        }`}
-                        style={{
-                          marginLeft: `${el.level * 20}px`,
-                          backgroundColor: selectedElementId === el.id ? colors.primary : undefined,
-                          color: selectedElementId === el.id ? 'white' : colors.primary
-                        }}
-                      >
-                        {el.name}
-                      </div>
-                    ));
-                  })()}
-                </div>
+              <h4 className="text-base font-semibold mb-2" style={{ color: colors.black }}>
+                Выбрать существующее событие:
+              </h4>
+              <div className="flex flex-wrap gap-2">
+                {existingEvents
+                  .filter(event => 
+                    !findElement(selectedElementId)?.events?.some(e => e.id === event.id)
+                  )
+                  .map((event) => (
+                    <button
+                      key={event.id}
+                      onClick={() => toggleEventSelection(event.id)}
+                      className="px-3.5 py-1.5 rounded-full cursor-pointer text-sm transition-all"
+                      style={{
+                        backgroundColor: colors.white,
+                        border: `1px solid ${colors.primary}`,
+                        color: colors.primary,
+                      }}
+                      onMouseEnter={(e) => {
+                        e.target.style.backgroundColor = colors.primary;
+                        e.target.style.color = colors.white;
+                      }}
+                      onMouseLeave={(e) => {
+                        e.target.style.backgroundColor = colors.white;
+                        e.target.style.color = colors.primary;
+                      }}
+                    >
+                      {event.name}
+                    </button>
+                  ))}
+                {existingEvents.every(event => 
+                  findElement(selectedElementId)?.events?.some(e => e.id === event.id)
+                ) && (
+                  <p style={{ color: colors.secondaryText }}>Все события уже добавлены</p>
+                )}
               </div>
             </div>
-          )}
-
-          {/* Шаг 4 */}
-          {step === 4 && (
-            <div>
-              <div className="mb-4">
-                <p className="text-lg font-semibold mb-3" style={{ color: colors.primary }}>
-                  Создайте или выберите события для элемента:
-                </p>
-                
-                <div className="border rounded-lg p-4 mb-4" style={{ borderColor: colors.lightGray }}>
-                  <div className="flex gap-2 mb-3">
-                    <div className="flex-1 relative">
-                      <input
-                        type="text"
-                        value={newEventName}
-                        onChange={(e) => setNewEventName(e.target.value)}
-                        placeholder="Название события"
-                        className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400 pr-10"
-                        style={{ borderColor: colors.lightGray }}
-                      />
-                      {newEventName && (
-                        <button
-                          onClick={clearNewEventName}
-                          className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                        >
-                          ×
-                        </button>
-                      )}
-                    </div>
-                    
-                    <button
-                      onClick={handleCreateEvent}
-                      className="px-4 py-2 rounded-lg transition-colors text-white"
-                      style={{ backgroundColor: colors.lightBlue }}
-                      onMouseEnter={(e) => e.target.style.backgroundColor = colors.primary}
-                      onMouseLeave={(e) => e.target.style.backgroundColor = colors.lightBlue}
-                    >
-                      +
-                    </button>
-                  </div>
-                  
-                  <div className="flex gap-4 mb-3">
-                    <button
-                      onClick={() => setEventType('irregular')}
-                      className={`px-3 py-1 rounded-lg transition-colors text-sm ${
-                        eventType === 'irregular'
-                          ? 'text-white'
-                          : 'border border-gray-300 text-gray-600'
-                      }`}
-                      style={{ backgroundColor: eventType === 'irregular' ? colors.primary : undefined }}
-                    >
-                      Н (нерегулярное)
-                    </button>
-                    <button
-                      onClick={() => setEventType('regular')}
-                      className={`px-3 py-1 rounded-lg transition-colors text-sm ${
-                        eventType === 'regular'
-                          ? 'text-white'
-                          : 'border border-gray-300 text-gray-600'
-                      }`}
-                      style={{ backgroundColor: eventType === 'regular' ? colors.primary : undefined }}
-                    >
-                      Р (регулярное)
-                    </button>
-                  </div>
-                  
-                  {eventType === 'regular' && (
-                    <div className="flex gap-2">
-                      <select
-                        value={periodicity}
-                        onChange={(e) => setPeriodicity(e.target.value)}
-                        className="px-3 py-1.5 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400 max-w-[140px]"
-                        style={{ borderColor: colors.lightGray }}
-                      >
-                        <option value="">Как часто</option>
-                        <option value="ежегодно">Ежегодно</option>
-                        <option value="ежемесячно">Ежемесячно</option>
-                        <option value="раз в квартал">Раз в квартал</option>
-                        <option value="еженедельно">Еженедельно</option>
-                      </select>
-                      
-                      <div className="relative">
-                        <button
-                          onClick={() => setShowDatePicker(!showDatePicker)}
-                          className="px-3 py-1.5 border rounded-lg"
-                          style={{ borderColor: colors.lightGray }}
-                        >
-                          📅
-                        </button>
-                        {showDatePicker && (
-                          <div className="absolute top-full left-0 mt-1 bg-white border rounded-lg shadow-lg z-20">
-                            <input
-                              type="date"
-                              value={startDate}
-                              onChange={(e) => setStartDate(e.target.value)}
-                              className="px-3 py-1.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400 text-sm"
-                              style={{ borderColor: colors.lightGray }}
-                              autoFocus
-                            />
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                </div>
-                
-                <input
-                  type="text"
-                  value={eventSearchQuery}
-                  onChange={(e) => setEventSearchQuery(e.target.value)}
-                  placeholder="Поиск событий..."
-                  className="w-full px-3 py-1.5 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400 mb-3"
-                  style={{ borderColor: colors.lightGray }}
-                />
-                
-                <div className="max-h-[200px] overflow-y-auto border rounded-lg" style={{ borderColor: colors.lightGray }}>
-                  {filteredEvents.length === 0 ? (
-                    <div className="text-center py-4 text-sm" style={{ color: colors.secondaryText }}>
-                      Нет событий. Создайте новое выше.
-                    </div>
-                  ) : (
-                    filteredEvents.map((event) => (
-                      <div
-                        key={event.id}
-                        className="flex items-center gap-2 p-2 hover:bg-gray-50 cursor-pointer border-b last:border-b-0"
-                        style={{ borderColor: colors.lightGray }}
-                        onClick={() => toggleEventSelection(event.id)}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={selectedEventIds.includes(event.id)}
-                          onChange={() => {}}
-                          className="w-3.5 h-3.5"
-                          onClick={(e) => e.stopPropagation()}
-                        />
-                        <span className="flex-1 text-sm" style={{ color: colors.primary }}>
-                          {event.name}
-                        </span>
-                        <span className="text-xs px-2 py-0.5 rounded" style={{ backgroundColor: colors.lightGray, color: colors.secondaryText }}>
-                          {event.event_type === 'regular' ? 'Регулярное' : 'Нерегулярное'}
-                        </span>
-                      </div>
-                    ))
-                  )}
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Footer */}
-        <div className="px-6 py-4 border-t" style={{ borderColor: colors.lightGray }}>
-          <div className="flex items-center gap-3">
-            {step > 1 && step !== 4 && (
-              <button
-                onClick={handleBack}
-                className="px-6 py-2 rounded-lg transition-colors border"
-                style={{ borderColor: colors.lightGray, color: colors.primary }}
-              >
-                Назад
-              </button>
-            )}
-            
-            {step === 4 && (
-              <button
-                onClick={handleBack}
-                className="px-6 py-2 rounded-lg transition-colors border"
-                style={{ borderColor: colors.lightGray, color: colors.primary }}
-              >
-                Назад
-              </button>
-            )}
-            
-            <div className="flex-1"></div>
-            
-            <div className="flex items-center gap-4">
-              {step === 3 && (
-                <button
-                  onClick={editingPage ? handleUpdatePageAndContinue : handleSavePageAndContinue}
-                  disabled={!selectedElementId || isSavingElements}
-                  className="px-6 py-2 rounded-lg transition-colors text-white text-base disabled:bg-gray-400 disabled:cursor-not-allowed"
-                  style={{ backgroundColor: colors.lightBlue }}
-                  onMouseEnter={(e) => {
-                    if (selectedElementId && !isSavingElements) {
-                      e.target.style.backgroundColor = colors.primary;
-                    }
-                  }}
-                  onMouseLeave={(e) => {
-                    e.target.style.backgroundColor = colors.lightBlue;
-                  }}
-                >
-                  {isSavingElements ? 'Сохранение...' : (editingPage ? 'Обновить и продолжить' : 'Сохранить и продолжить')}
-                </button>
-              )}
-              
-              {step === 4 && (
-                <button
-                  onClick={handleFinalSave}
-                  className="px-6 py-2 rounded-lg transition-colors text-white text-base"
-                  style={{ backgroundColor: colors.lightBlue }}
-                  onMouseEnter={(e) => e.target.style.backgroundColor = colors.primary}
-                  onMouseLeave={(e) => e.target.style.backgroundColor = colors.lightBlue}
-                >
-                  {editingPage ? 'Сохранить изменения' : 'Готово'}
-                </button>
-              )}
-              
-              {step !== 3 && step !== 4 && (
-                <button
-                  onClick={handleNext}
-                  disabled={step === 1 && (!pageTitle.trim() || !links.some(l => l.trim()))}
-                  className="px-6 py-2 rounded-lg transition-colors text-white text-xl disabled:bg-gray-400 disabled:cursor-not-allowed"
-                  style={{ backgroundColor: colors.lightBlue }}
-                  onMouseEnter={(e) => {
-                    if (!(step === 1 && (!pageTitle.trim() || !links.some(l => l.trim())))) {
-                      e.target.style.backgroundColor = colors.primary;
-                    }
-                  }}
-                  onMouseLeave={(e) => {
-                    e.target.style.backgroundColor = colors.lightBlue;
-                  }}
-                >
-                  Далее
-                </button>
-              )}
-              
-              <span className="text-2xl" style={{ color: colors.secondaryText }}>
-                {step}/4
-              </span>
-            </div>
+          </div>
+        ) : (
+          <div className="px-4 py-3 rounded-lg mb-4" style={{
+            backgroundColor: '#fff3cd',
+            border: '1px solid #ffc107',
+          }}>
+            Выберите элемент на предыдущем шаге
+          </div>
+        )}
+        
+        <div className="flex justify-between items-center mt-5 pt-5" style={{ borderTop: `1px solid ${colors.lightGray}` }}>
+          <span className="text-sm font-medium" style={{ color: colors.primary }}>4/4</span>
+          <div className="flex gap-3">
+            <button
+              onClick={() => setActiveStep(2)}
+              className="px-6 py-2.5 border-none rounded-lg cursor-pointer font-medium"
+              style={{
+                backgroundColor: colors.lightGray,
+                color: colors.black,
+              }}
+            >
+              Назад
+            </button>
+            <button
+              onClick={handleSave}
+              disabled={isSaving || elements.length === 0}
+              className={`px-6 py-2.5 rounded-lg font-medium ${
+                (isSaving || elements.length === 0) ? 'cursor-not-allowed' : 'cursor-pointer'
+              }`}
+              style={{
+                backgroundColor: (isSaving || elements.length === 0) ? colors.lightGray : colors.success,
+                color: (isSaving || elements.length === 0) ? colors.secondaryText : colors.white,
+              }}
+            >
+              {isSaving ? 'Сохранение...' : (editingPage ? 'Обновить страницу' : 'Сохранить страницу')}
+            </button>
           </div>
         </div>
       </div>
+    );
+  };
+
+  // ============ ОСНОВНОЙ РЕНДЕР ============
+
+  if (!isOpen) return null;
+
+  return (
+    <div
+      className="fixed inset-0 bg-black/50 flex justify-center items-center z-[9999] p-5"
+      onClick={(e) => {
+        if (e.target === e.currentTarget && !isSaving) {
+          if (window.confirm('Закрыть модальное окно? Несохраненные данные будут потеряны.')) {
+            onClose(false);
+          }
+        }
+      }}
+    >
+      <div className="rounded-2xl p-8 max-w-[600px] w-full max-h-[90vh] overflow-auto relative shadow-2xl" style={{
+        backgroundColor: colors.white,
+      }}>
+        <div className="flex justify-end mb-2">
+          <button
+            onClick={() => {
+              if (!isSaving) {
+                if (window.confirm('Закрыть модальное окно? Несохраненные данные будут потеряны.')) {
+                  onClose(false);
+                }
+              }
+            }}
+            className={`bg-transparent border-none p-1 ${isSaving ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+          >
+            <X size={24} style={{ color: colors.black }} />
+          </button>
+        </div>
+
+        {activeStep === 0 && renderStep1()}
+        {activeStep === 1 && renderStep2()}
+        {activeStep === 2 && renderStep3()}
+        {activeStep === 3 && renderStep4()}
+
+        {snackbar.open && (
+          <div
+            className={`absolute bottom-8 left-1/2 -translate-x-1/2 px-6 py-3 rounded-lg shadow-lg flex items-center gap-3 min-w-[200px] justify-center ${
+              snackbar.severity === 'success' ? 'text-white' :
+              snackbar.severity === 'error' ? 'text-white' :
+              snackbar.severity === 'warning' ? 'text-black' :
+              'text-white'
+            }`}
+            style={{
+              backgroundColor: snackbar.severity === 'success' ? colors.success :
+                              snackbar.severity === 'error' ? colors.error :
+                              snackbar.severity === 'warning' ? '#ffc107' :
+                              '#17a2b8',
+            }}
+          >
+            <span>{snackbar.message}</span>
+            <button
+              onClick={() => setSnackbar({ ...snackbar, open: false })}
+              className="bg-transparent border-none cursor-pointer text-lg px-1"
+              style={{
+                color: snackbar.severity === 'warning' ? colors.black : colors.white,
+              }}
+            >
+              ×
+            </button>
+          </div>
+        )}
+      </div>
     </div>
   );
-}
+};
 
 export default AddPageModal;
