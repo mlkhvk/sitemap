@@ -3,8 +3,10 @@ from typing import Optional, List
 from datetime import date, datetime
 from pydantic import validator
 
+
 class ProjectCreate(BaseModel):
     name: str
+
 
 class ProjectResponse(BaseModel):
     id: int
@@ -13,17 +15,21 @@ class ProjectResponse(BaseModel):
     class Config:
         from_attributes = True
 
+
 class PageLinkCreate(BaseModel):
     url: str
+
 
 class PageLinkResponse(BaseModel):
     id: int
     url: str
 
+
 class PageCreate(BaseModel):
     title: str
     parent_page_id: Optional[int] = None
     links: Optional[List[PageLinkCreate]] = []
+
 
 class PageResponse(BaseModel):
     id: int
@@ -36,10 +42,12 @@ class PageResponse(BaseModel):
     class Config:
         from_attributes = True
 
+
 class ElementCreate(BaseModel):
     name: str
     parent_element_id: Optional[int] = None
     sort_order: Optional[int] = 0
+
 
 class ElementResponse(BaseModel):
     id: int
@@ -51,12 +59,14 @@ class ElementResponse(BaseModel):
     class Config:
         from_attributes = True
 
+
 class EventCreate(BaseModel):
     name: str
     event_type: str  # 'regular' or 'irregular'
     periodicity: Optional[str] = None
     start_date: Optional[date] = None
     topic_id: Optional[int] = None
+
 
 class EventResponse(BaseModel):
     id: int
@@ -69,8 +79,10 @@ class EventResponse(BaseModel):
     class Config:
         from_attributes = True
 
+
 class TopicCreate(BaseModel):
     name: str
+
 
 class EventTaskResponse(BaseModel):
     id: int
@@ -78,14 +90,16 @@ class EventTaskResponse(BaseModel):
     due_date: date
     completed: bool
     completed_at: Optional[datetime] = None
-    is_overdue: Optional[bool] = False   # добавить это поле
+    is_overdue: Optional[bool] = False  # добавить это поле
 
     class Config:
         from_attributes = True
 
+
 class EventTaskCreate(BaseModel):
     event_id: int
     due_date: date
+
 
 class EventTaskResponse(BaseModel):
     id: int
@@ -94,8 +108,10 @@ class EventTaskResponse(BaseModel):
     completed: bool
     completed_at: Optional[datetime]
 
+
 class EventTaskUpdate(BaseModel):
     completed: bool
+
 
 class TopicResponse(BaseModel):
     id: int
@@ -104,9 +120,10 @@ class TopicResponse(BaseModel):
     class Config:
         from_attributes = True
 
+
 class ElementEventResponse(BaseModel):
     element_id: int
     event_id: int
-    
+
     class Config:
         from_attributes = True

@@ -2,41 +2,37 @@ from typing import List, Optional
 from datetime import datetime, date, timedelta
 
 from dateutil.relativedelta import relativedelta
-from sqlalchemy.orm import Session
+from sqlalchemy import select, delete
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import models, schemas
-
 
 # ============================================================
 # PROJECTS
 # ============================================================
 
-def get_projects(
-    db: Session,
+
+async def get_projects(
+    db: AsyncSession,
     skip: int = 0,
     limit: int = 100,
 ):
-    return (
-        db.query(models.Project)
-        .offset(skip)
-        .limit(limit)
-        .all()
-    )
+    result = await db.execute(select(models.Project).offset(skip).limit(limit))
+    return result.scalars().all()
 
 
-def get_project(
-    db: Session,
+async def get_project(
+    db: AsyncSession,
     project_id: int,
 ):
-    return (
-        db.query(models.Project)
-        .filter(models.Project.id == project_id)
-        .first()
+    result = await db.execute(
+        select(models.Project).filter(models.Project.id == project_id)
     )
+    return result.scalars().first()
 
 
-def create_project(
-    db: Session,
+async def create_project(
+    db: AsyncSession,
     project: schemas.ProjectCreate,
 ):
     db_project = models.Project(
@@ -44,27 +40,26 @@ def create_project(
     )
 
     db.add(db_project)
-    db.commit()
-    db.refresh(db_project)
+    await db.commit()
+    await db.refresh(db_project)
 
     return db_project
 
 
-def delete_project(
-    db: Session,
+async def delete_project(
+    db: AsyncSession,
     project_id: int,
 ):
-    db_project = (
-        db.query(models.Project)
-        .filter(models.Project.id == project_id)
-        .first()
+    result = await db.execute(
+        select(models.Project).filter(models.Project.id == project_id)
     )
+    db_project = result.scalars().first()
 
     if not db_project:
         return False
 
-    db.delete(db_project)
-    db.commit()
+    await db.delete(db_project)
+    await db.commit()
 
     return True
 
@@ -73,21 +68,19 @@ def delete_project(
 # PAGES
 # ============================================================
 
-def get_pages_by_project(
-    db: Session,
+
+async def get_pages_by_project(
+    db: AsyncSession,
     project_id: int,
 ):
-    return (
-        db.query(models.Page)
-        .filter(
-            models.Page.project_id == project_id
-        )
-        .all()
+    result = await db.execute(
+        select(models.Page).filter(models.Page.project_id == project_id)
     )
+    return result.scalars().all()
 
 
-def create_page(
-    db: Session,
+async def create_page(
+    db: AsyncSession,
     page: schemas.PageCreate,
     project_id: int,
 ):
@@ -102,8 +95,8 @@ def create_page(
     if parent_id is None and page.links:
         new_page_url = page.links[0].url
 
-        all_pages = (
-            db.query(
+        result = await db.execute(
+            select(
                 models.Page,
                 models.PageLink,
             )
@@ -111,21 +104,16 @@ def create_page(
                 models.PageLink,
                 models.Page.id == models.PageLink.page_id,
             )
-            .filter(
-                models.Page.project_id == project_id
-            )
-            .all()
+            .filter(models.Page.project_id == project_id)
         )
+        all_pages = result.all()
 
         possible_parent = None
         max_len = 0
 
         for page_obj, link_obj in all_pages:
-            if (
-                len(link_obj.url) < len(new_page_url)
-                and new_page_url.startswith(
-                    link_obj.url + "/"
-                )
+            if len(link_obj.url) < len(new_page_url) and new_page_url.startswith(
+                link_obj.url + "/"
             ):
                 if len(link_obj.url) > max_len:
                     max_len = len(link_obj.url)
@@ -141,7 +129,7 @@ def create_page(
     )
 
     db.add(db_page)
-    db.flush()
+    await db.flush()
 
     for link in page.links:
         db_link = models.PageLink(
@@ -151,22 +139,19 @@ def create_page(
 
         db.add(db_link)
 
-    db.commit()
-    db.refresh(db_page)
+    await db.commit()
+    await db.refresh(db_page)
 
     return db_page
 
 
-def update_page(
-    db: Session,
+async def update_page(
+    db: AsyncSession,
     page_id: int,
     page_update: schemas.PageCreate,
 ):
-    db_page = (
-        db.query(models.Page)
-        .filter(models.Page.id == page_id)
-        .first()
-    )
+    result = await db.execute(select(models.Page).filter(models.Page.id == page_id))
+    db_page = result.scalars().first()
 
     if not db_page:
         return None
@@ -180,14 +165,10 @@ def update_page(
     db_page.parent_page_id = parent_id
 
     # Удаляем старые ссылки
-    (
-        db.query(models.PageLink)
-        .filter(
-            models.PageLink.page_id == page_id
-        )
-        .delete(
-            synchronize_session=False
-        )
+    await db.execute(
+        delete(models.PageLink)
+        .filter(models.PageLink.page_id == page_id)
+        .execution_options(synchronize_session=False)
     )
 
     # Добавляем новые ссылки
@@ -199,26 +180,21 @@ def update_page(
 
         db.add(db_link)
 
-    db.commit()
-    db.refresh(db_page)
+    await db.commit()
+    await db.refresh(db_page)
 
     return db_page
 
 
-def delete_page(db: Session, page_id: int):
-    page = (
-        db.query(models.Page)
-        .filter(
-            models.Page.id == page_id
-        )
-        .first()
-    )
+async def delete_page(db: AsyncSession, page_id: int):
+    result = await db.execute(select(models.Page).filter(models.Page.id == page_id))
+    page = result.scalars().first()
 
     if not page:
         return False
 
-    db.delete(page)
-    db.commit()
+    await db.delete(page)
+    await db.commit()
 
     return True
 
@@ -227,21 +203,19 @@ def delete_page(db: Session, page_id: int):
 # ELEMENTS
 # ============================================================
 
-def get_elements_by_page(
-    db: Session,
+
+async def get_elements_by_page(
+    db: AsyncSession,
     page_id: int,
 ):
-    return (
-        db.query(models.Element)
-        .filter(
-            models.Element.page_id == page_id
-        )
-        .all()
+    result = await db.execute(
+        select(models.Element).filter(models.Element.page_id == page_id)
     )
+    return result.scalars().all()
 
 
-def create_element(
-    db: Session,
+async def create_element(
+    db: AsyncSession,
     element: schemas.ElementCreate,
     page_id: int,
 ):
@@ -253,49 +227,47 @@ def create_element(
     )
 
     db.add(db_element)
-    db.commit()
-    db.refresh(db_element)
+    await db.commit()
+    await db.refresh(db_element)
 
     return db_element
 
 
-def delete_element(db: Session, element_id: int):
-    element = (
-        db.query(models.Element)
-        .filter(
-            models.Element.id == element_id
-        )
-        .first()
+async def delete_element(db: AsyncSession, element_id: int):
+    result = await db.execute(
+        select(models.Element).filter(models.Element.id == element_id)
     )
+    element = result.scalars().first()
 
     if not element:
         return False
 
-    db.delete(element)
-    db.commit()
+    await db.delete(element)
+    await db.commit()
 
     return True
+
 
 # ============================================================
 # EVENTS
 # ============================================================
 
-def get_events(
-    db: Session,
+
+async def get_events(
+    db: AsyncSession,
     event_type: Optional[str] = None,
 ):
-    query = db.query(models.Event)
+    query = select(models.Event)
 
     if event_type:
-        query = query.filter(
-            models.Event.event_type == event_type
-        )
+        query = query.filter(models.Event.event_type == event_type)
 
-    return query.all()
+    result = await db.execute(query)
+    return result.scalars().all()
 
 
-def create_event(
-    db: Session,
+async def create_event(
+    db: AsyncSession,
     event: schemas.EventCreate,
     element_ids: List[int],
 ):
@@ -309,25 +281,20 @@ def create_event(
     )
 
     db.add(db_event)
-    db.flush()
+    await db.flush()
 
     # Создаём связи ElementEvent
     for element_id in element_ids:
 
-        element = (
-            db.query(models.Element)
-            .filter(
-                models.Element.id == element_id
-            )
-            .first()
+        result = await db.execute(
+            select(models.Element).filter(models.Element.id == element_id)
         )
+        element = result.scalars().first()
 
         if not element:
-            db.rollback()
+            await db.rollback()
 
-            raise ValueError(
-                f"Element {element_id} not found"
-            )
+            raise ValueError(f"Element {element_id} not found")
 
         association = models.ElementEvent(
             element_id=element.id,
@@ -336,8 +303,8 @@ def create_event(
 
         db.add(association)
 
-    db.commit()
-    db.refresh(db_event)
+    await db.commit()
+    await db.refresh(db_event)
 
     return db_event
 
@@ -346,31 +313,28 @@ def create_event(
 # EVENT ↔ ELEMENT
 # ============================================================
 
-def get_events_by_element(
-    db: Session,
+
+async def get_events_by_element(
+    db: AsyncSession,
     element_id: int,
 ):
     """
     Возвращает события, привязанные к элементу.
     """
 
-    return (
-        db.query(models.Event)
+    result = await db.execute(
+        select(models.Event)
         .join(
             models.ElementEvent,
-            models.Event.id
-            == models.ElementEvent.event_id,
+            models.Event.id == models.ElementEvent.event_id,
         )
-        .filter(
-            models.ElementEvent.element_id
-            == element_id
-        )
-        .all()
+        .filter(models.ElementEvent.element_id == element_id)
     )
+    return result.scalars().all()
 
 
-def get_event_elements_by_element(
-    db: Session,
+async def get_event_elements_by_element(
+    db: AsyncSession,
     element_id: int,
 ):
     """
@@ -378,56 +342,41 @@ def get_event_elements_by_element(
     ElementEvent для конкретного элемента.
     """
 
-    return (
-        db.query(models.ElementEvent)
-        .filter(
-            models.ElementEvent.element_id
-            == element_id
-        )
-        .all()
+    result = await db.execute(
+        select(models.ElementEvent).filter(models.ElementEvent.element_id == element_id)
     )
+    return result.scalars().all()
 
 
-def attach_event_to_element(
-    db: Session,
+async def attach_event_to_element(
+    db: AsyncSession,
     element_id: int,
     event_id: int,
 ):
     # Проверяем существование элемента
-    element = (
-        db.query(models.Element)
-        .filter(
-            models.Element.id == element_id
-        )
-        .first()
+    result = await db.execute(
+        select(models.Element).filter(models.Element.id == element_id)
     )
+    element = result.scalars().first()
 
     if not element:
         return False
 
     # Проверяем существование события
-    event = (
-        db.query(models.Event)
-        .filter(
-            models.Event.id == event_id
-        )
-        .first()
-    )
+    result = await db.execute(select(models.Event).filter(models.Event.id == event_id))
+    event = result.scalars().first()
 
     if not event:
         return False
 
     # Проверяем, нет ли уже такой связи
-    exists = (
-        db.query(models.ElementEvent)
-        .filter(
-            models.ElementEvent.element_id
-            == element_id,
-            models.ElementEvent.event_id
-            == event_id,
+    result = await db.execute(
+        select(models.ElementEvent).filter(
+            models.ElementEvent.element_id == element_id,
+            models.ElementEvent.event_id == event_id,
         )
-        .first()
     )
+    exists = result.scalars().first()
 
     if exists:
         return True
@@ -438,13 +387,13 @@ def attach_event_to_element(
     )
 
     db.add(association)
-    db.commit()
+    await db.commit()
 
     return True
 
 
-def detach_event_from_element(
-    db: Session,
+async def detach_event_from_element(
+    db: AsyncSession,
     element_id: int,
     event_id: int,
 ):
@@ -453,22 +402,19 @@ def detach_event_from_element(
     с конкретным элементом.
     """
 
-    association = (
-        db.query(models.ElementEvent)
-        .filter(
-            models.ElementEvent.element_id
-            == element_id,
-            models.ElementEvent.event_id
-            == event_id,
+    result = await db.execute(
+        select(models.ElementEvent).filter(
+            models.ElementEvent.element_id == element_id,
+            models.ElementEvent.event_id == event_id,
         )
-        .first()
     )
+    association = result.scalars().first()
 
     if not association:
         return False
 
-    db.delete(association)
-    db.commit()
+    await db.delete(association)
+    await db.commit()
 
     return True
 
@@ -477,17 +423,16 @@ def detach_event_from_element(
 # TOPICS
 # ============================================================
 
-def get_topics(
-    db: Session,
+
+async def get_topics(
+    db: AsyncSession,
 ):
-    return (
-        db.query(models.Topic)
-        .all()
-    )
+    result = await db.execute(select(models.Topic))
+    return result.scalars().all()
 
 
-def create_topic(
-    db: Session,
+async def create_topic(
+    db: AsyncSession,
     topic: schemas.TopicCreate,
 ):
     db_topic = models.Topic(
@@ -495,8 +440,8 @@ def create_topic(
     )
 
     db.add(db_topic)
-    db.commit()
-    db.refresh(db_topic)
+    await db.commit()
+    await db.refresh(db_topic)
 
     return db_topic
 
@@ -505,23 +450,22 @@ def create_topic(
 # TASKS
 # ============================================================
 
-def get_event_tasks(
-    db: Session,
+
+async def get_event_tasks(
+    db: AsyncSession,
     completed: Optional[bool] = None,
 ):
-    query = db.query(models.EventTask)
+    query = select(models.EventTask)
 
     if completed is not None:
-        query = query.filter(
-            models.EventTask.completed
-            == completed
-        )
+        query = query.filter(models.EventTask.completed == completed)
 
-    return query.all()
+    result = await db.execute(query)
+    return result.scalars().all()
 
 
-def create_event_task(
-    db: Session,
+async def create_event_task(
+    db: AsyncSession,
     task: schemas.EventTaskCreate,
 ):
     db_task = models.EventTask(
@@ -530,60 +474,52 @@ def create_event_task(
     )
 
     db.add(db_task)
-    db.commit()
-    db.refresh(db_task)
+    await db.commit()
+    await db.refresh(db_task)
 
     return db_task
 
 
-def update_event_task(
-    db: Session,
+async def update_event_task(
+    db: AsyncSession,
     task_id: int,
     task_update: schemas.EventTaskUpdate,
 ):
-    db_task = (
-        db.query(models.EventTask)
-        .filter(
-            models.EventTask.id == task_id
-        )
-        .first()
+    result = await db.execute(
+        select(models.EventTask).filter(models.EventTask.id == task_id)
     )
+    db_task = result.scalars().first()
 
     if not db_task:
         return None
 
-    db_task.completed = (
-        task_update.completed
-    )
+    db_task.completed = task_update.completed
 
     if task_update.completed:
         db_task.completed_at = datetime.utcnow()
     else:
         db_task.completed_at = None
 
-    db.commit()
-    db.refresh(db_task)
+    await db.commit()
+    await db.refresh(db_task)
 
     return db_task
 
 
-def delete_event_task(
-    db: Session,
+async def delete_event_task(
+    db: AsyncSession,
     task_id: int,
 ):
-    db_task = (
-        db.query(models.EventTask)
-        .filter(
-            models.EventTask.id == task_id
-        )
-        .first()
+    result = await db.execute(
+        select(models.EventTask).filter(models.EventTask.id == task_id)
     )
+    db_task = result.scalars().first()
 
     if not db_task:
         return False
 
-    db.delete(db_task)
-    db.commit()
+    await db.delete(db_task)
+    await db.commit()
 
     return True
 
@@ -591,6 +527,8 @@ def delete_event_task(
 # ============================================================
 # DATE CALCULATION
 # ============================================================
+# Чистая функция, к БД не обращается — остаётся синхронной.
+
 
 def calculate_next_due_date(
     start_date: date,
@@ -611,9 +549,7 @@ def calculate_next_due_date(
     if periodicity == "ежегодно":
 
         try:
-            next_date = start_date.replace(
-                year=reference_date.year
-            )
+            next_date = start_date.replace(year=reference_date.year)
         except ValueError:
             # Например, 29 февраля
             next_date = start_date.replace(
@@ -624,9 +560,7 @@ def calculate_next_due_date(
         if next_date < reference_date:
 
             try:
-                next_date = start_date.replace(
-                    year=reference_date.year + 1
-                )
+                next_date = start_date.replace(year=reference_date.year + 1)
             except ValueError:
                 next_date = start_date.replace(
                     year=reference_date.year + 1,
@@ -639,67 +573,42 @@ def calculate_next_due_date(
 
         next_date = start_date + relativedelta(
             months=(
-                (reference_date.year - start_date.year)
-                * 12
+                (reference_date.year - start_date.year) * 12
                 + reference_date.month
                 - start_date.month
             )
         )
 
         if next_date < reference_date:
-            next_date += relativedelta(
-                months=1
-            )
+            next_date += relativedelta(months=1)
 
         return next_date
 
     elif periodicity == "еженедельно":
 
-        days_diff = (
-            reference_date - start_date
-        ).days
+        days_diff = (reference_date - start_date).days
 
         weeks_passed = days_diff // 7
 
-        next_date = (
-            start_date
-            + timedelta(
-                weeks=weeks_passed
-            )
-        )
+        next_date = start_date + timedelta(weeks=weeks_passed)
 
         if next_date < reference_date:
-            next_date += timedelta(
-                weeks=1
-            )
+            next_date += timedelta(weeks=1)
 
         return next_date
 
     elif periodicity == "раз в квартал":
 
-        months_diff = (
-            reference_date.year
-            - start_date.year
-        ) * 12 + (
-            reference_date.month
-            - start_date.month
+        months_diff = (reference_date.year - start_date.year) * 12 + (
+            reference_date.month - start_date.month
         )
 
-        quarters_passed = (
-            months_diff // 3
-        )
+        quarters_passed = months_diff // 3
 
-        next_date = (
-            start_date
-            + relativedelta(
-                months=quarters_passed * 3
-            )
-        )
+        next_date = start_date + relativedelta(months=quarters_passed * 3)
 
         if next_date < reference_date:
-            next_date += relativedelta(
-                months=3
-            )
+            next_date += relativedelta(months=3)
 
         return next_date
 
@@ -710,21 +619,20 @@ def calculate_next_due_date(
 # PAGE WITH ELEMENTS
 # ============================================================
 
-def create_page_with_elements(
-    db: Session,
+
+async def create_page_with_elements(
+    db: AsyncSession,
     page_data: dict,
     project_id: int,
 ):
     db_page = models.Page(
         title=page_data["title"],
         project_id=project_id,
-        parent_page_id=page_data.get(
-            "parent_page_id"
-        ),
+        parent_page_id=page_data.get("parent_page_id"),
     )
 
     db.add(db_page)
-    db.flush()
+    await db.flush()
 
     # Создаём ссылки
     for link in page_data.get(
@@ -739,7 +647,7 @@ def create_page_with_elements(
         db.add(db_link)
 
     # Рекурсивное создание элементов
-    def create_elements(
+    async def create_elements(
         elements,
         parent_id=None,
     ):
@@ -756,25 +664,23 @@ def create_page_with_elements(
             )
 
             db.add(db_element)
-            db.flush()
+            await db.flush()
 
-            if element_data.get(
-                "children"
-            ):
-                create_elements(
+            if element_data.get("children"):
+                await create_elements(
                     element_data["children"],
                     db_element.id,
                 )
 
-    create_elements(
+    await create_elements(
         page_data.get(
             "elements",
             [],
         )
     )
 
-    db.commit()
-    db.refresh(db_page)
+    await db.commit()
+    await db.refresh(db_page)
 
     return db_page
 
@@ -783,8 +689,9 @@ def create_page_with_elements(
 # CURRENT TASK
 # ============================================================
 
-def get_or_create_current_task(
-    db: Session,
+
+async def get_or_create_current_task(
+    db: AsyncSession,
     event_id: int,
 ):
     """
@@ -792,18 +699,10 @@ def get_or_create_current_task(
     или создаёт его.
     """
 
-    event = (
-        db.query(models.Event)
-        .filter(
-            models.Event.id == event_id
-        )
-        .first()
-    )
+    result = await db.execute(select(models.Event).filter(models.Event.id == event_id))
+    event = result.scalars().first()
 
-    if (
-        not event
-        or event.event_type != "regular"
-    ):
+    if not event or event.event_type != "regular":
         return None
 
     next_due_date = calculate_next_due_date(
@@ -814,16 +713,13 @@ def get_or_create_current_task(
     if next_due_date is None:
         return None
 
-    task = (
-        db.query(models.EventTask)
-        .filter(
-            models.EventTask.event_id
-            == event_id,
-            models.EventTask.due_date
-            == next_due_date,
+    result = await db.execute(
+        select(models.EventTask).filter(
+            models.EventTask.event_id == event_id,
+            models.EventTask.due_date == next_due_date,
         )
-        .first()
     )
+    task = result.scalars().first()
 
     if not task:
 
@@ -834,7 +730,7 @@ def get_or_create_current_task(
         )
 
         db.add(task)
-        db.commit()
-        db.refresh(task)
+        await db.commit()
+        await db.refresh(task)
 
     return task

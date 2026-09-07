@@ -16,10 +16,10 @@ from sqlalchemy.orm import relationship
 
 from app.database import Base
 
-
 # ============================================================
 # PROJECT
 # ============================================================
+
 
 class Project(Base):
     __tablename__ = "projects"
@@ -47,6 +47,7 @@ class Project(Base):
 # ============================================================
 # PAGE
 # ============================================================
+
 
 class Page(Base):
     __tablename__ = "pages"
@@ -140,6 +141,7 @@ class Page(Base):
 # PAGE LINK
 # ============================================================
 
+
 class PageLink(Base):
     __tablename__ = "page_links"
 
@@ -173,6 +175,7 @@ class PageLink(Base):
 # ============================================================
 # ELEMENT
 # ============================================================
+
 
 class Element(Base):
     __tablename__ = "elements"
@@ -266,6 +269,7 @@ class Element(Base):
 # TOPIC
 # ============================================================
 
+
 class Topic(Base):
     __tablename__ = "topics"
 
@@ -291,6 +295,7 @@ class Topic(Base):
 # EVENT
 # ============================================================
 
+
 class Event(Base):
     __tablename__ = "events"
 
@@ -299,7 +304,6 @@ class Event(Base):
             "event_type IN ('regular', 'irregular')",
             name="check_event_type",
         ),
-
         CheckConstraint(
             """
             periodicity IN (
@@ -312,7 +316,6 @@ class Event(Base):
             """,
             name="check_periodicity",
         ),
-
         CheckConstraint(
             """
             (
@@ -327,8 +330,8 @@ class Event(Base):
                 AND periodicity IS NULL
             )
             """,
-            name="event_type_constraint"
-        )
+            name="event_type_constraint",
+        ),
     )
 
     id = Column(
@@ -414,6 +417,7 @@ class Event(Base):
 # ELEMENT EVENT
 # ============================================================
 
+
 class ElementEvent(Base):
     __tablename__ = "element_events"
 
@@ -467,6 +471,7 @@ class ElementEvent(Base):
 # ============================================================
 # EVENT TASK
 # ============================================================
+
 
 class EventTask(Base):
     __tablename__ = "event_tasks"

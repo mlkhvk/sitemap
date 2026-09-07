@@ -2,6 +2,7 @@ import React, {
   useState,
   useEffect,
   useCallback,
+  useRef
 } from 'react';
 
 import {
@@ -65,6 +66,8 @@ function ProjectPage() {
     editingPage,
     setEditingPage,
   ] = useState(null);
+  const pagesSectionRef = useRef(null);
+  const sitemapSectionRef = useRef(null);
 
   // =========================
   // LOAD PROJECT
@@ -205,6 +208,14 @@ function ProjectPage() {
             );
           }
         );
+        const scrollToSection = (ref) => {
+          if (ref.current) {
+            ref.current.scrollIntoView({ 
+              behavior: 'smooth', // Плавная прокрутка
+              block: 'start'      // Прокрутить к началу элемента
+            });
+          }
+        };
 
       return sortedPages.map(
         (
@@ -482,40 +493,30 @@ function ProjectPage() {
               </div>
 
               <ul className="space-y-2 text-xl">
-                <li className="flex items-center gap-2">
-                  <span>
-                    •
-                  </span>
-                  <span>
-                    Страницы
-                  </span>
+                <li 
+                  className="flex items-center gap-2 cursor-pointer hover:opacity-70 transition-opacity"
+                  onClick={() => pagesSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+                >
+                  <span>•</span>
+                  <span>Страницы</span>
                 </li>
 
-                <li className="flex items-center gap-2">
-                  <span>
-                    •
-                  </span>
-                  <span>
-                    Карта
-                  </span>
+                <li 
+                  className="flex items-center gap-2 cursor-pointer hover:opacity-70 transition-opacity"
+                  onClick={() => sitemapSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+                >
+                  <span>•</span>
+                  <span>Карта</span>
                 </li>
 
-                <li className="flex items-center gap-2">
-                  <span>
-                    •
-                  </span>
-                  <span>
-                    События
-                  </span>
+                <li className="flex items-center gap-2 opacity-50">
+                  <span>•</span>
+                  <span>События</span>
                 </li>
 
-                <li className="flex items-center gap-2">
-                  <span>
-                    •
-                  </span>
-                  <span>
-                    Чеклисты
-                  </span>
+                <li className="flex items-center gap-2 opacity-50">
+                  <span>•</span>
+                  <span>Чеклисты</span>
                 </li>
               </ul>
 
@@ -610,12 +611,12 @@ function ProjectPage() {
         >
           <div className="mt-10">
 
-            {/* TITLE */}
-
-            <div className="w-full max-w-[720px] mx-auto mb-7 grid grid-cols-3 items-center">
-
+          {/* TITLE */}
+            <div 
+              ref={pagesSectionRef}
+              className="scroll-mt-24 w-full max-w-[720px] mx-auto mb-7 grid grid-cols-3 items-center"
+            >
               <div />
-
               <div className="flex justify-center">
                 <h2 className="text-2xl font-semibold text-black">
                   Страницы сайта
@@ -842,17 +843,13 @@ function ProjectPage() {
               </table>
 
             </div>
-
-            {/* ========================= */}
-            {/* SITEMAP */}
-            {/* ========================= */}
-
-            <div className="mt-10 w-full max-w-[720px] mx-auto">
-
+            <div 
+              ref={sitemapSectionRef}
+              className="scroll-mt-24 mt-10 w-full max-w-[720px] mx-auto"
+            >
               <h2 className="text-2xl font-semibold mb-6 text-center text-black">
                 Карта сайта
               </h2>
-
               <div
                 className="border rounded-lg p-6"
                 style={{

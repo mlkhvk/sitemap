@@ -1,3 +1,4 @@
+from contextlib import asynccontextmanager
 from datetime import date
 from typing import List, Optional
 
@@ -10,20 +11,24 @@ from fastapi import (
 
 from fastapi.middleware.cors import CORSMiddleware
 
-from sqlalchemy.orm import Session
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import crud, models, schemas
 from app.database import engine, get_db
 from app.crud import get_or_create_current_task
 
-
 # ============================================================
 # DATABASE
 # ============================================================
+# create_all для async-движка нужно запускать через run_sync
 
-models.Base.metadata.create_all(
-    bind=engine
-)
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    async with engine.begin() as conn:
+        await conn.run_sync(models.Base.metadata.create_all)
+    yield
 
 
 # ============================================================
@@ -31,7 +36,8 @@ models.Base.metadata.create_all(
 # ============================================================
 
 app = FastAPI(
-    title="Карта актуальности API"
+    title="Карта актуальности API",
+    lifespan=lifespan,
 )
 
 
@@ -41,27 +47,16 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-
     allow_origins=[
         "http://localhost:3000",
         "http://localhost:8000",
         "http://127.0.0.1:3000",
         "http://127.0.0.1:8000",
     ],
-
     allow_credentials=True,
-
-    allow_methods=[
-        "*"
-    ],
-
-    allow_headers=[
-        "*"
-    ],
-
-    expose_headers=[
-        "*"
-    ],
+    allow_methods=["*"],
+    allow_headers=["*"],
+    expose_headers=["*"],
 )
 
 
@@ -69,18 +64,17 @@ app.add_middleware(
 # PROJECTS
 # ============================================================
 
+
 @app.get(
     "/projects",
-    response_model=List[
-        schemas.ProjectResponse
-    ],
+    response_model=List[schemas.ProjectResponse],
 )
-def read_projects(
+async def read_projects(
     skip: int = 0,
     limit: int = 100,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ):
-    return crud.get_projects(
+    return await crud.get_projects(
         db,
         skip=skip,
         limit=limit,
@@ -91,24 +85,22 @@ def read_projects(
     "/projects",
     response_model=schemas.ProjectResponse,
 )
-def create_project(
+async def create_project(
     project: schemas.ProjectCreate,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ):
-    return crud.create_project(
+    return await crud.create_project(
         db,
         project,
     )
 
 
-@app.delete(
-    "/projects/{project_id}"
-)
-def delete_project(
+@app.delete("/projects/{project_id}")
+async def delete_project(
     project_id: int,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ):
-    success = crud.delete_project(
+    success = await crud.delete_project(
         db,
         project_id,
     )
@@ -129,17 +121,16 @@ def delete_project(
 # PAGES
 # ============================================================
 
+
 @app.get(
     "/projects/{project_id}/pages",
-    response_model=List[
-        schemas.PageResponse
-    ],
+    response_model=List[schemas.PageResponse],
 )
-def read_pages(
+async def read_pages(
     project_id: int,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ):
-    return crud.get_pages_by_project(
+    return await crud.get_pages_by_project(
         db,
         project_id,
     )
@@ -149,12 +140,12 @@ def read_pages(
     "/projects/{project_id}/pages",
     response_model=schemas.PageResponse,
 )
-def create_page(
+async def create_page(
     project_id: int,
     page: schemas.PageCreate,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ):
-    return crud.create_page(
+    return await crud.create_page(
         db,
         page,
         project_id,
@@ -165,12 +156,12 @@ def create_page(
     "/pages/{page_id}",
     response_model=schemas.PageResponse,
 )
-def update_page(
+async def update_page(
     page_id: int,
     page: schemas.PageCreate,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ):
-    db_page = crud.update_page(
+    db_page = await crud.update_page(
         db,
         page_id,
         page,
@@ -185,14 +176,12 @@ def update_page(
     return db_page
 
 
-@app.delete(
-    "/pages/{page_id}"
-)
-def delete_page(
+@app.delete("/pages/{page_id}")
+async def delete_page(
     page_id: int,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ):
-    success = crud.delete_page(
+    success = await crud.delete_page(
         db,
         page_id,
     )
@@ -213,17 +202,16 @@ def delete_page(
 # ELEMENTS
 # ============================================================
 
+
 @app.get(
     "/pages/{page_id}/elements",
-    response_model=List[
-        schemas.ElementResponse
-    ],
+    response_model=List[schemas.ElementResponse],
 )
-def read_elements(
+async def read_elements(
     page_id: int,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ):
-    return crud.get_elements_by_page(
+    return await crud.get_elements_by_page(
         db,
         page_id,
     )
@@ -233,26 +221,24 @@ def read_elements(
     "/pages/{page_id}/elements",
     response_model=schemas.ElementResponse,
 )
-def create_element(
+async def create_element(
     page_id: int,
     element: schemas.ElementCreate,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ):
-    return crud.create_element(
+    return await crud.create_element(
         db,
         element,
         page_id,
     )
 
 
-@app.delete(
-    "/elements/{element_id}"
-)
-def delete_element(
+@app.delete("/elements/{element_id}")
+async def delete_element(
     element_id: int,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ):
-    success = crud.delete_element(
+    success = await crud.delete_element(
         db,
         element_id,
     )
@@ -273,17 +259,16 @@ def delete_element(
 # EVENTS
 # ============================================================
 
+
 @app.get(
     "/events",
-    response_model=List[
-        schemas.EventResponse
-    ],
+    response_model=List[schemas.EventResponse],
 )
-def read_events(
+async def read_events(
     event_type: Optional[str] = None,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ):
-    return crud.get_events(
+    return await crud.get_events(
         db,
         event_type,
     )
@@ -293,16 +278,16 @@ def read_events(
     "/events",
     response_model=schemas.EventResponse,
 )
-def create_event(
+async def create_event(
     event: schemas.EventCreate,
     element_ids: List[int] = Body(
         ...,
         embed=True,
     ),
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ):
     try:
-        return crud.create_event(
+        return await crud.create_event(
             db,
             event,
             element_ids,
@@ -320,24 +305,20 @@ def create_event(
 # EVENTS OF ELEMENT
 # ============================================================
 
+
 @app.get(
     "/elements/{element_id}/events",
-    response_model=List[
-        schemas.EventResponse
-    ],
+    response_model=List[schemas.EventResponse],
 )
-def get_events_by_element(
+async def get_events_by_element(
     element_id: int,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ):
     # Проверяем существование элемента
-    element = (
-        db.query(models.Element)
-        .filter(
-            models.Element.id == element_id
-        )
-        .first()
+    result = await db.execute(
+        select(models.Element).filter(models.Element.id == element_id)
     )
+    element = result.scalars().first()
 
     if not element:
         raise HTTPException(
@@ -345,21 +326,19 @@ def get_events_by_element(
             detail="Element not found",
         )
 
-    return crud.get_events_by_element(
+    return await crud.get_events_by_element(
         db,
         element_id,
     )
 
 
-@app.post(
-    "/elements/{element_id}/events/{event_id}"
-)
-def attach_event_to_element(
+@app.post("/elements/{element_id}/events/{event_id}")
+async def attach_event_to_element(
     element_id: int,
     event_id: int,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ):
-    success = crud.attach_event_to_element(
+    success = await crud.attach_event_to_element(
         db,
         element_id,
         event_id,
@@ -368,9 +347,7 @@ def attach_event_to_element(
     if not success:
         raise HTTPException(
             status_code=404,
-            detail=(
-                "Element or event not found"
-            ),
+            detail=("Element or event not found"),
         )
 
     return {
@@ -379,15 +356,13 @@ def attach_event_to_element(
     }
 
 
-@app.delete(
-    "/elements/{element_id}/events/{event_id}"
-)
-def detach_event_from_element(
+@app.delete("/elements/{element_id}/events/{event_id}")
+async def detach_event_from_element(
     element_id: int,
     event_id: int,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ):
-    success = crud.detach_event_from_element(
+    success = await crud.detach_event_from_element(
         db,
         element_id,
         event_id,
@@ -396,9 +371,7 @@ def detach_event_from_element(
     if not success:
         raise HTTPException(
             status_code=404,
-            detail=(
-                "Event association not found"
-            ),
+            detail=("Event association not found"),
         )
 
     return {
@@ -411,29 +384,26 @@ def detach_event_from_element(
 # TOPICS
 # ============================================================
 
+
 @app.get(
     "/topics",
-    response_model=List[
-        schemas.TopicResponse
-    ],
+    response_model=List[schemas.TopicResponse],
 )
-def read_topics(
-    db: Session = Depends(get_db),
+async def read_topics(
+    db: AsyncSession = Depends(get_db),
 ):
-    return crud.get_topics(
-        db
-    )
+    return await crud.get_topics(db)
 
 
 @app.post(
     "/topics",
     response_model=schemas.TopicResponse,
 )
-def create_topic(
+async def create_topic(
     topic: schemas.TopicCreate,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ):
-    return crud.create_topic(
+    return await crud.create_topic(
         db,
         topic,
     )
@@ -443,36 +413,28 @@ def create_topic(
 # TASKS
 # ============================================================
 
+
 @app.get(
     "/tasks",
-    response_model=List[
-        schemas.EventTaskResponse
-    ],
+    response_model=List[schemas.EventTaskResponse],
 )
-def read_tasks(
+async def read_tasks(
     completed: Optional[bool] = None,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ):
-    query = db.query(
-        models.EventTask
-    )
+    query = select(models.EventTask)
 
     if completed is not None:
-        query = query.filter(
-            models.EventTask.completed
-            == completed
-        )
+        query = query.filter(models.EventTask.completed == completed)
 
-    tasks = query.all()
+    result = await db.execute(query)
+    tasks = result.scalars().all()
 
     today = date.today()
 
     for task in tasks:
 
-        task.is_overdue = (
-            not task.completed
-            and task.due_date < today
-        )
+        task.is_overdue = not task.completed and task.due_date < today
 
     return tasks
 
@@ -481,11 +443,11 @@ def read_tasks(
     "/tasks",
     response_model=schemas.EventTaskResponse,
 )
-def create_task(
+async def create_task(
     task: schemas.EventTaskCreate,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ):
-    return crud.create_event_task(
+    return await crud.create_event_task(
         db,
         task,
     )
@@ -495,12 +457,12 @@ def create_task(
     "/tasks/{task_id}",
     response_model=schemas.EventTaskResponse,
 )
-def update_task(
+async def update_task(
     task_id: int,
     task_update: schemas.EventTaskUpdate,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ):
-    task = crud.update_event_task(
+    task = await crud.update_event_task(
         db,
         task_id,
         task_update,
@@ -515,14 +477,12 @@ def update_task(
     return task
 
 
-@app.delete(
-    "/tasks/{task_id}"
-)
-def delete_task(
+@app.delete("/tasks/{task_id}")
+async def delete_task(
     task_id: int,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ):
-    success = crud.delete_event_task(
+    success = await crud.delete_event_task(
         db,
         task_id,
     )
@@ -543,15 +503,14 @@ def delete_task(
 # CREATE PAGE WITH ELEMENTS
 # ============================================================
 
-@app.post(
-    "/projects/{project_id}/pages_with_elements"
-)
-def create_page_with_elements(
+
+@app.post("/projects/{project_id}/pages_with_elements")
+async def create_page_with_elements(
     project_id: int,
     page_data: dict,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ):
-    return crud.create_page_with_elements(
+    return await crud.create_page_with_elements(
         db,
         page_data,
         project_id,
@@ -562,30 +521,25 @@ def create_page_with_elements(
 # CHECKLIST
 # ============================================================
 
+
 @app.get(
     "/tasks/checklist",
-    response_model=List[
-        schemas.EventTaskResponse
-    ],
+    response_model=List[schemas.EventTaskResponse],
 )
-def get_checklist(
-    db: Session = Depends(get_db),
+async def get_checklist(
+    db: AsyncSession = Depends(get_db),
 ):
     # Регулярные события
-    events = (
-        db.query(models.Event)
-        .filter(
-            models.Event.event_type
-            == "regular"
-        )
-        .all()
+    result = await db.execute(
+        select(models.Event).filter(models.Event.event_type == "regular")
     )
+    events = result.scalars().all()
 
     tasks = []
 
     for event in events:
 
-        task = get_or_create_current_task(
+        task = await get_or_create_current_task(
             db,
             event.id,
         )
@@ -594,18 +548,13 @@ def get_checklist(
             tasks.append(task)
 
     # Нерегулярные события
-    irregular_tasks = (
-        db.query(models.EventTask)
+    result = await db.execute(
+        select(models.EventTask)
         .join(models.Event)
-        .filter(
-            models.Event.event_type
-            == "irregular"
-        )
-        .all()
+        .filter(models.Event.event_type == "irregular")
     )
+    irregular_tasks = result.scalars().all()
 
-    tasks.extend(
-        irregular_tasks
-    )
+    tasks.extend(irregular_tasks)
 
     return tasks
