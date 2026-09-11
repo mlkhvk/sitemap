@@ -123,6 +123,7 @@ class Page(Base):
         back_populates="page",
         cascade="all, delete-orphan",
         passive_deletes=True,
+        lazy="selectin",
     )
 
     # -------------------------
@@ -134,6 +135,7 @@ class Page(Base):
         back_populates="page",
         cascade="all, delete-orphan",
         passive_deletes=True,
+        lazy="selectin",
     )
 
 
