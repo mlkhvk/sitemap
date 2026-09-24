@@ -83,6 +83,9 @@ class EventResponse(BaseModel):
 class TopicCreate(BaseModel):
     name: str
 
+class TopicUpdate(BaseModel):
+    name: str
+
 
 class EventTaskResponse(BaseModel):
     id: int
@@ -100,7 +103,13 @@ class EventTaskCreate(BaseModel):
     event_id: int
     due_date: date
 
-
+class EventUpdate(BaseModel):
+    name: str
+    event_type: str
+    periodicity: Optional[str] = None
+    start_date: Optional[date] = None
+    topic_id: Optional[int] = None
+    
 class EventTaskResponse(BaseModel):
     id: int
     event_id: int

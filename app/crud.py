@@ -282,20 +282,26 @@ async def create_event(
     )
 
     db.add(db_event)
+
     await db.flush()
 
     # Создаём связи ElementEvent
     for element_id in element_ids:
 
         result = await db.execute(
-            select(models.Element).filter(models.Element.id == element_id)
+            select(models.Element).filter(
+                models.Element.id == element_id
+            )
         )
+
         element = result.scalars().first()
 
         if not element:
             await db.rollback()
 
-            raise ValueError(f"Element {element_id} not found")
+            raise ValueError(
+                f"Element {element_id} not found"
+            )
 
         association = models.ElementEvent(
             element_id=element.id,
@@ -305,9 +311,119 @@ async def create_event(
         db.add(association)
 
     await db.commit()
+
     await db.refresh(db_event)
 
     return db_event
+
+async def update_event(
+    db: AsyncSession,
+    event_id: int,
+    event,
+    element_ids,
+):
+    result = await db.execute(
+        select(models.Event).filter(models.Event.id == event_id)
+    )
+    db_event = result.scalars().first()
+
+    if not db_event:
+        return None
+
+    db_event.name = event.name.strip()
+    db_event.event_type = event.event_type
+
+    db_event.periodicity = (
+        event.periodicity
+        if event.event_type == 'regular'
+        else None
+    )
+
+    db_event.start_date = (
+        event.start_date
+        if event.event_type == 'regular'
+        else None
+    )
+
+    db_event.topic_id = (
+        event.topic_id
+        if event.event_type == 'irregular'
+        else None
+    )
+
+    # Удаляем старые привязки
+    await db.execute(
+        delete(models.ElementEvent).where(
+            models.ElementEvent.event_id == event_id
+        )
+    )
+
+    # Создаём новые
+    for element_id in element_ids:
+        element_result = await db.execute(
+            select(models.Element).filter(
+                models.Element.id == element_id
+            )
+        )
+
+        element = element_result.scalars().first()
+
+        if not element:
+            await db.rollback()
+            raise ValueError(
+                f'Element {element_id} not found'
+            )
+
+        db.add(
+            models.ElementEvent(
+                element_id=element.id,
+                event_id=event_id,
+            )
+        )
+
+    await db.commit()
+    await db.refresh(db_event)
+
+    return db_event
+
+async def delete_event(
+    db: AsyncSession,
+    event_id: int,
+):
+    # Проверяем, существует ли событие
+    result = await db.execute(
+        select(models.Event).filter(
+            models.Event.id == event_id
+        )
+    )
+
+    event = result.scalars().first()
+
+    if not event:
+        return False
+
+    # Удаляем задачи события
+    await db.execute(
+        delete(models.EventTask)
+        .where(
+            models.EventTask.event_id == event_id
+        )
+    )
+
+    # Удаляем связи события с элементами
+    await db.execute(
+        delete(models.ElementEvent)
+        .where(
+            models.ElementEvent.event_id == event_id
+        )
+    )
+
+    # Удаляем само событие
+    await db.delete(event)
+
+    await db.commit()
+
+    return True
 
 
 # ============================================================
@@ -333,6 +449,13 @@ async def get_events_by_element(
     )
     return result.scalars().all()
 
+async def get_event_elements(db: AsyncSession, event_id: int):
+    result = await db.execute(
+        select(models.ElementEvent).filter(
+            models.ElementEvent.event_id == event_id
+        )
+    )
+    return result.scalars().all()
 
 async def get_event_elements_by_element(
     db: AsyncSession,
@@ -425,26 +548,110 @@ async def detach_event_from_element(
 # ============================================================
 
 
+# ============================================================
+# TOPICS
+# ============================================================
+
 async def get_topics(
     db: AsyncSession,
 ):
-    result = await db.execute(select(models.Topic))
+    result = await db.execute(
+        select(models.Topic)
+    )
+
     return result.scalars().all()
 
 
 async def create_topic(
     db: AsyncSession,
-    topic: schemas.TopicCreate,
+    topic,
 ):
     db_topic = models.Topic(
-        name=topic.name,
+        name=topic.name.strip()
     )
 
     db.add(db_topic)
+
     await db.commit()
     await db.refresh(db_topic)
 
     return db_topic
+
+
+async def update_topic(
+    db: AsyncSession,
+    topic_id: int,
+    topic,
+):
+    result = await db.execute(
+        select(models.Topic).filter(
+            models.Topic.id == topic_id
+        )
+    )
+
+    db_topic = result.scalars().first()
+
+    if not db_topic:
+        return None
+
+    new_name = topic.name.strip()
+
+    if not new_name:
+        raise ValueError(
+            "Название темы не может быть пустым"
+        )
+
+    db_topic.name = new_name
+
+    await db.commit()
+    await db.refresh(db_topic)
+
+    return db_topic
+
+
+async def delete_topic(
+    db: AsyncSession,
+    topic_id: int,
+):
+    result = await db.execute(
+        select(models.Topic).filter(
+            models.Topic.id == topic_id
+        )
+    )
+
+    db_topic = result.scalars().first()
+
+    if not db_topic:
+        return False
+
+    # ========================================================
+    # ВАЖНО:
+    # Все события этой темы переводим в "Без темы".
+    #
+    # Мы НЕ удаляем события.
+    # Просто убираем topic_id.
+    # ========================================================
+
+    events_result = await db.execute(
+        select(models.Event).filter(
+            models.Event.topic_id == topic_id
+        )
+    )
+
+    events = events_result.scalars().all()
+
+    for event in events:
+        event.topic_id = None
+
+    # ========================================================
+    # Теперь удаляем саму тему
+    # ========================================================
+
+    await db.delete(db_topic)
+
+    await db.commit()
+
+    return True
 
 
 # ============================================================

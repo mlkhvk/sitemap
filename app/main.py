@@ -300,7 +300,85 @@ async def create_event(
             detail=str(e),
         )
 
+@app.delete("/events/{event_id}")
+async def delete_event(
+    event_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    success = await crud.delete_event(
+        db,
+        event_id,
+    )
 
+    if not success:
+        raise HTTPException(
+            status_code=404,
+            detail="Event not found",
+        )
+
+    return {
+        "ok": True,
+        "message": "Event deleted",
+    }
+
+@app.get("/events/{event_id}/elements")
+async def read_event_elements(
+    event_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    result = await crud.get_event_elements(db, event_id)
+
+    if not result:
+        event = await crud.get_event(db, event_id)
+
+        if not event:
+            raise HTTPException(
+                status_code=404,
+                detail="Event not found",
+            )
+
+    return result
+
+@app.put("/events/{event_id}", response_model=schemas.EventResponse)
+async def update_event(
+    event_id: int,
+    event: schemas.EventUpdate,
+    element_ids: List[int] = Body(..., embed=True),
+    db: AsyncSession = Depends(get_db),
+):
+    if not event.name.strip():
+        raise HTTPException(
+            status_code=400,
+            detail="Название события не может быть пустым",
+        )
+
+    if not element_ids:
+        raise HTTPException(
+            status_code=400,
+            detail="Выберите хотя бы один элемент",
+        )
+
+    try:
+        result = await crud.update_event(
+            db,
+            event_id,
+            event,
+            element_ids,
+        )
+
+        if not result:
+            raise HTTPException(
+                status_code=404,
+                detail="Event not found",
+            )
+
+        return result
+
+    except ValueError as error:
+        raise HTTPException(
+            status_code=404,
+            detail=str(error),
+        )
 # ============================================================
 # EVENTS OF ELEMENT
 # ============================================================
@@ -408,7 +486,57 @@ async def create_topic(
         topic,
     )
 
+@app.put(
+    "/topics/{topic_id}",
+    response_model=schemas.TopicResponse,
+)
+async def update_topic(
+    topic_id: int,
+    topic: schemas.TopicUpdate,
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        result = await crud.update_topic(
+            db,
+            topic_id,
+            topic,
+        )
 
+        if not result:
+            raise HTTPException(
+                status_code=404,
+                detail="Topic not found",
+            )
+
+        return result
+
+    except ValueError as error:
+        raise HTTPException(
+            status_code=400,
+            detail=str(error),
+        )
+@app.delete(
+    "/topics/{topic_id}",
+)
+async def delete_topic(
+    topic_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    success = await crud.delete_topic(
+        db,
+        topic_id,
+    )
+
+    if not success:
+        raise HTTPException(
+            status_code=404,
+            detail="Topic not found",
+        )
+
+    return {
+        "ok": True,
+        "message": "Topic deleted",
+    }
 # ============================================================
 # TASKS
 # ============================================================

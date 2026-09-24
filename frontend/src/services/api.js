@@ -109,8 +109,20 @@ export const createEvent = (
     data
   );
 };
+export const deleteEvent = (
+  eventId
+) => {
+  return api.delete(
+    `/events/${eventId}`
+  );
+};
+export const updateEvent = (eventId, data) => {
+  return api.put(`/events/${eventId}`, data);
+};
 
-
+export const getEventElementsByEvent = (eventId) => {
+  return api.get(`/events/${eventId}/elements`);
+};
 // ============================================================
 // EVENTS OF ELEMENT
 // ============================================================
@@ -165,13 +177,16 @@ export const getTopics = () => {
   return api.get('/topics');
 };
 
-export const createTopic = (
-  data
-) => {
-  return api.post(
-    '/topics',
-    data
-  );
+export const createTopic = (data) => {
+  return api.post('/topics', data);
+};
+
+export const updateTopic = (topicId, data) => {
+  return api.put(`/topics/${topicId}`, data);
+};
+
+export const deleteTopic = (topicId) => {
+  return api.delete(`/topics/${topicId}`);
 };
 
 
@@ -210,6 +225,9 @@ export const deleteTask = (
   );
 };
 
+export const getChecklist = () => {
+  return api.get('/tasks/checklist');
+};
 
 // ============================================================
 // DEFAULT EXPORT

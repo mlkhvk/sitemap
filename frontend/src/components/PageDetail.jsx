@@ -1,18 +1,37 @@
-// src/components/PageDetail.jsx
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Undo2 } from 'lucide-react';
 import colors from '../colors';
-import { getPages, getElements, getProjects } from '../services/api';
+import {
+  getPages,
+  getElements,
+  getProjects,
+  getEventElements,
+  getChecklist,
+} from '../services/api';
+
+const formatDate = (dateString) => {
+  if (!dateString) return '';
+
+  const date = new Date(dateString);
+
+  return date.toLocaleDateString('ru-RU', {
+    day: '2-digit',
+    month: 'long',
+  });
+};
 
 function PageDetail() {
   const { projectId, pageId } = useParams();
   const navigate = useNavigate();
-  
+
   const [page, setPage] = useState(null);
   const [project, setProject] = useState(null);
   const [elements, setElements] = useState([]);
   const [loading, setLoading] = useState(true);
+
+  const [regularItems, setRegularItems] = useState([]);
+  const [irregularItems, setIrregularItems] = useState([]);
 
   useEffect(() => {
     fetchPageData();
@@ -21,43 +40,167 @@ function PageDetail() {
   const fetchPageData = async () => {
     try {
       setLoading(true);
-      
+
       // Получаем страницу
       const pagesRes = await getPages(projectId);
-      const foundPage = pagesRes.data.find(p => p.id === parseInt(pageId));
+
+      const foundPage = pagesRes.data.find(
+        (p) => p.id === parseInt(pageId)
+      );
+
       setPage(foundPage);
-      
+
       // Получаем проект
       const projectsRes = await getProjects();
-      const foundProject = projectsRes.data.find(p => p.id === parseInt(projectId));
+
+      const foundProject = projectsRes.data.find(
+        (p) => p.id === parseInt(projectId)
+      );
+
       setProject(foundProject);
-      
+
       // Получаем элементы страницы
       const elementsRes = await getElements(pageId);
-      setElements(elementsRes.data);
-      
+
+      const pageElements = elementsRes.data || [];
+
+      setElements(pageElements);
+
+      // Получаем события, привязанные к этим элементам
+      await fetchEventsData(pageElements);
+
     } catch (error) {
-      console.error('Ошибка загрузки данных страницы:', error);
+      console.error(
+        'Ошибка загрузки данных страницы:',
+        error
+      );
     } finally {
       setLoading(false);
     }
   };
 
-  // Функция для построения дерева элементов
+  // ============================================================
+  // События элементов
+  // ============================================================
+
+  const fetchEventsData = async (pageElements) => {
+    try {
+      if (pageElements.length === 0) {
+        setRegularItems([]);
+        setIrregularItems([]);
+        return;
+      }
+
+      // Получаем события для каждого элемента
+      const eventResults = await Promise.all(
+        pageElements.map((el) =>
+          getEventElements(el.id)
+        )
+      );
+
+      // Связываем элемент и его события
+      const elementEventPairs = [];
+
+      pageElements.forEach((el, idx) => {
+        const events = eventResults[idx].data || [];
+
+        events.forEach((event) => {
+          elementEventPairs.push({
+            element: el,
+            event,
+          });
+        });
+      });
+
+      // Получаем чеклист
+      const checklistRes = await getChecklist();
+
+      // Группируем задачи по event_id
+      const tasksByEvent = {};
+
+      (checklistRes.data || []).forEach((task) => {
+        if (!tasksByEvent[task.event_id]) {
+          tasksByEvent[task.event_id] = [];
+        }
+
+        tasksByEvent[task.event_id].push(task);
+      });
+
+      const regular = [];
+      const irregular = [];
+
+      // Формируем данные для вывода
+      elementEventPairs.forEach(
+        ({ element, event }) => {
+          const tasks =
+            tasksByEvent[event.id] || [];
+
+          const dueDates =
+            tasks.length > 0
+              ? tasks.map((t) => t.due_date)
+              : [null];
+
+          dueDates.forEach((dueDate) => {
+            const item = {
+              key: `${event.id}-${element.id}-${dueDate}`,
+
+              // Название элемента
+              label: element.name,
+
+              // Название события
+              eventName: event.name,
+
+              // Дата из чеклиста
+              dueDate,
+            };
+
+            if (event.event_type === 'regular') {
+              regular.push({
+                ...item,
+                periodicity: event.periodicity,
+              });
+            } else {
+              irregular.push(item);
+            }
+          });
+        }
+      );
+
+      setRegularItems(regular);
+      setIrregularItems(irregular);
+
+    } catch (error) {
+      console.error(
+        'Ошибка загрузки событий:',
+        error
+      );
+    }
+  };
+
+  // ============================================================
+  // Построение дерева элементов
+  // ============================================================
+
   const buildElementTree = (elements) => {
     const elementMap = {};
-    elements.forEach(el => {
+
+    elements.forEach((el) => {
       elementMap[el.id] = {
         ...el,
-        children: []
+        children: [],
       };
     });
 
     const tree = [];
-    elements.forEach(el => {
+
+    elements.forEach((el) => {
       if (el.parent_element_id) {
         if (elementMap[el.parent_element_id]) {
-          elementMap[el.parent_element_id].children.push(elementMap[el.id]);
+          elementMap[
+            el.parent_element_id
+          ].children.push(
+            elementMap[el.id]
+          );
         }
       } else {
         tree.push(elementMap[el.id]);
@@ -67,46 +210,76 @@ function PageDetail() {
     return tree;
   };
 
-  // Функция для рендеринга элементов
-  const renderElements = (items, level = 0, className = '') => {
-    const sortedItems = [...items].sort((a, b) => {
-      if (a.sort_order !== undefined && b.sort_order !== undefined) {
-        return a.sort_order - b.sort_order;
+  // ============================================================
+  // Рендеринг дерева элементов
+  // ============================================================
+
+  const renderElements = (
+    items,
+    level = 0,
+    className = ''
+  ) => {
+    const sortedItems = [...items].sort(
+      (a, b) => {
+        if (
+          a.sort_order !== undefined &&
+          b.sort_order !== undefined
+        ) {
+          return (
+            a.sort_order - b.sort_order
+          );
+        }
+
+        return a.name.localeCompare(b.name);
       }
-      return a.name.localeCompare(b.name);
-    });
+    );
 
     return sortedItems.map((el) => {
-      const hasChildren = el.children && el.children.length > 0;
-      
+      const hasChildren =
+        el.children &&
+        el.children.length > 0;
+
       return (
         <div key={el.id}>
-          <div 
+          <div
             className={`py-1 ${className}`}
-            style={{ 
+            style={{
               paddingLeft: `${level * 20}px`,
-              color: colors.primary
+              color: colors.primary,
             }}
           >
             {hasChildren ? (
-              <span style={{ fontWeight: '600' }}>
+              <span
+                style={{
+                  fontWeight: '600',
+                }}
+              >
                 {el.name}
               </span>
             ) : (
               <span>
-                 {el.name}
+                {el.name}
               </span>
             )}
           </div>
+
           {hasChildren && (
             <div>
-              {renderElements(el.children, level + 1, className)}
+              {renderElements(
+                el.children,
+                level + 1,
+                className
+              )}
             </div>
           )}
         </div>
       );
     });
   };
+
+  // ============================================================
+  // Loading
+  // ============================================================
 
   if (loading) {
     return (
@@ -116,15 +289,34 @@ function PageDetail() {
     );
   }
 
+  // ============================================================
+  // Страница не найдена
+  // ============================================================
+
   if (!page) {
     return (
       <div className="h-screen flex items-center justify-center">
         <div className="text-center">
-          <p className="text-xl" style={{ color: colors.primary }}>Страница не найдена</p>
+          <p
+            className="text-xl"
+            style={{
+              color: colors.primary,
+            }}
+          >
+            Страница не найдена
+          </p>
+
           <button
-            onClick={() => navigate(`/project/${projectId}`)}
+            onClick={() =>
+              navigate(
+                `/project/${projectId}`
+              )
+            }
             className="mt-4 px-4 py-2 rounded-lg text-white"
-            style={{ backgroundColor: colors.lightBlue }}
+            style={{
+              backgroundColor:
+                colors.lightBlue,
+            }}
           >
             Вернуться к проекту
           </button>
@@ -133,115 +325,243 @@ function PageDetail() {
     );
   }
 
-  const elementTree = buildElementTree(elements);
-  const pageUrl = page.links && page.links.length > 0 ? page.links[0].url : '';
+  const elementTree =
+    buildElementTree(elements);
+
+  const pageUrl =
+    page.links &&
+    page.links.length > 0
+      ? page.links[0].url
+      : '';
 
   return (
     <div className="min-h-screen p-3">
-      <div 
+      <div
         className="rounded-2xl overflow-hidden border min-h-[95vh]"
-        style={{ borderColor: colors.lightGray, backgroundColor: colors.white }}
+        style={{
+          borderColor: colors.lightGray,
+          backgroundColor: colors.white,
+        }}
       >
-        {/* Header с центрированным текстом и иконкой возврата справа */}
-        <div className="p-6 border-b relative" style={{ borderColor: colors.lightGray, backgroundColor: colors.background }}>
-          {/* Иконка возврата справа */}
+
+        {/* ====================================================
+            HEADER
+        ==================================================== */}
+
+        <div
+          className="p-6 border-b relative"
+          style={{
+            borderColor:
+              colors.lightGray,
+            backgroundColor:
+              colors.background,
+          }}
+        >
+
+          {/* Кнопка возврата */}
           <button
-            onClick={() => navigate(`/project/${projectId}`)}
+            onClick={() =>
+              navigate(
+                `/project/${projectId}`
+              )
+            }
             className="absolute right-6 top-1/2 -translate-y-1/2 p-2 rounded-lg hover:bg-gray-100 transition-colors"
           >
-            <Undo2 size={28} style={{ color: colors.primary }} />
+            <Undo2
+              size={28}
+              style={{
+                color: colors.primary,
+              }}
+            />
           </button>
-          
-          {/* Заголовок по центру */}
-          <h1 
+
+          {/* Название проекта */}
+          <h1
             className="text-3xl font-semibold text-center"
-            style={{ color: colors.primary }}
+            style={{
+              color: colors.primary,
+            }}
           >
             {project?.name}
           </h1>
         </div>
 
-        {/* Контент */}
+        {/* ====================================================
+            КОНТЕНТ
+        ==================================================== */}
+
         <div className="p-8 max-w-4xl mx-auto">
+
           {/* Название страницы */}
-          <h1 
+          <h1
             className="text-3xl font-semibold mb-6 text-center"
-            style={{ color: colors.primary }}
+            style={{
+              color: colors.primary,
+            }}
           >
             {page.title}
           </h1>
 
-          {/* Ссылка */}
-          {page.links && page.links.length > 0 && (
-            <div className="mb-6">
-              <span className="text-2xl">
-                Ссылки: 
-              </span>
-              <div className="ml-12 mt-2 text-2xl">
-                  {page.links.map((link, index) => (
-                  <div key={index} style={{ color: colors.primary }}>
-                    {link.url}
-                  </div>
-                ))}
+          {/* ==================================================
+              ССЫЛКИ
+          ================================================== */}
+
+          {page.links &&
+            page.links.length > 0 && (
+              <div className="mb-6">
+                <span className="text-2xl">
+                  Ссылки:
+                </span>
+
+                <div className="ml-12 mt-2 text-2xl">
+                  {page.links.map(
+                    (link, index) => (
+                      <div
+                        key={index}
+                        style={{
+                          color:
+                            colors.primary,
+                        }}
+                      >
+                        {link.url}
+                      </div>
+                    )
+                  )}
+                </div>
               </div>
-            </div>
             )}
 
-           {/* Содержание */}
+          {/* ==================================================
+              СОДЕРЖАНИЕ
+          ================================================== */}
+
           {elements.length > 0 && (
             <div className="mb-8">
-              <h2 
-                className="text-2xl mb-4"
-              >
+              <h2 className="text-2xl mb-4">
                 Содержание:
               </h2>
+
               <div className="ml-12 mt-2 text-2xl">
-                {renderElements(elementTree, 0, 'text-2xl')}
+                {renderElements(
+                  elementTree,
+                  0,
+                  'text-2xl'
+                )}
               </div>
             </div>
           )}
-          {/* Данные, которые могут обновляться */}
+
+          {/* ==================================================
+              ДАННЫЕ, КОТОРЫЕ МОГУТ ОБНОВЛЯТЬСЯ
+          ================================================== */}
+
           <div>
             <h2 className="text-2xl mb-4">
-              Данные, которые могут обновляться:
+              Данные, которые могут
+              обновляться:
             </h2>
-            
+
             <div className="pl-4">
-              {/* Регулярно */}
+
+              {/* ==================================================
+                  РЕГУЛЯРНЫЕ
+              ================================================== */}
+
               <div className="mb-4">
-                <span 
-                  className="text-2xl"
-                >
+                <span className="text-2xl">
                   Регулярно:
                 </span>
+
                 <div className="ml-12 mt-2 text-2xl">
-                  <div style={{ color: colors.primary }}>
-                    • Возраст - ежегодно 1 августа
-                  </div>
-                  <div style={{ color: colors.primary }}>
-                    • Научная деятельность - ежегодно 1 августа
-                  </div>
+
+                  {regularItems.length === 0 ? (
+                    <div
+                      style={{
+                        color:
+                          colors.secondaryText,
+                      }}
+                    >
+                      Нет регулярных событий
+                    </div>
+                  ) : (
+                    regularItems.map(
+                      (item) => (
+                        <div
+                          key={item.key}
+                          style={{
+                            color:
+                              colors.primary,
+                          }}
+                        >
+                          • {item.label}
+                          {' - '}
+                          {item.eventName}
+                          {' - '}
+                          {item.periodicity}
+
+                          {item.dueDate
+                            ? ` ${formatDate(
+                                item.dueDate
+                              )}`
+                            : ''}
+                        </div>
+                      )
+                    )
+                  )}
+
                 </div>
               </div>
 
-              {/* При наступлении событий */}
+              {/* ==================================================
+                  НЕРЕГУЛЯРНЫЕ
+              ================================================== */}
+
               <div>
-                <span 
-                  className="text-2xl"
-                >
+                <span className="text-2xl">
                   При наступлении событий:
                 </span>
+
                 <div className="ml-12 mt-2 text-2xl">
-                  <div style={{ color: colors.primary }}>
-                    • Вставка об общей квалификации преподавателей
-                  </div>
-                  <div style={{ color: colors.primary }}>
-                    • События: изменение политики
-                  </div>
+
+                  {irregularItems.length === 0 ? (
+                    <div
+                      style={{
+                        color:
+                          colors.secondaryText,
+                      }}
+                    >
+                      Нет нерегулярных событий
+                    </div>
+                  ) : (
+                    irregularItems.map(
+                      (item) => (
+                        <div
+                          key={item.key}
+                          style={{
+                            color:
+                              colors.primary,
+                          }}
+                        >
+                          • {item.label}
+                          {' - '}
+                          {item.eventName}
+
+                          {item.dueDate
+                            ? ` - ${formatDate(
+                                item.dueDate
+                              )}`
+                            : ''}
+                        </div>
+                      )
+                    )
+                  )}
+
                 </div>
               </div>
+
             </div>
           </div>
+
         </div>
       </div>
     </div>
@@ -249,3 +569,4 @@ function PageDetail() {
 }
 
 export default PageDetail;
+

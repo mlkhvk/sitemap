@@ -2,7 +2,7 @@ import React, {
   useState,
   useEffect,
   useCallback,
-  useRef
+  useRef,
 } from 'react';
 
 import {
@@ -15,6 +15,8 @@ import {
   Undo2,
   Pencil,
   Trash2,
+  X,
+  Search,
 } from 'lucide-react';
 
 import AddPageModal from './AddPageModal';
@@ -27,307 +29,1014 @@ import {
   createPage,
   updatePage,
   deletePage,
+  getEvents,
+  createEvent,
+  updateEvent,
+  deleteEvent,
+  getEventElementsByEvent,
+  getElements,
+  getTopics,
+  createTopic,
+  updateTopic,
+  deleteTopic,
 } from '../services/api';
 
+// ============================================================
+// EVENTS HELPERS
+// ============================================================
+
+// Регулярное событие:
+// {
+//   id,
+//   title,
+//   is_regular: true,
+//   date: '2026-09-01',
+//   recurrence: 'yearly'
+// }
+//
+// Нерегулярное событие:
+// {
+//   id,
+//   title,
+//   is_regular: false,
+//   topic_id,
+//   topic?: {
+//     id,
+//     name
+//   }
+// }
+
+// Определяем, является ли событие нерегулярным.
+const isIrregularEvent = (event) => {
+  // Если backend явно сказал, что событие регулярное
+  if (event.is_regular === true) {
+    return false;
+  }
+
+  // Если backend явно сказал, что событие нерегулярное
+  if (event.is_regular === false) {
+    return true;
+  }
+
+  if (event.event_type !== undefined && event.event_type !== null) {
+    return event.event_type === 'irregular';
+  }
+
+  // Запасной вариант для старых данных
+  return (
+    (
+      event.topic_id !== undefined &&
+      event.topic_id !== null
+    ) ||
+    Boolean(event.topic)
+  );
+};
+
+// Получение даты события.
+// Поддерживаются разные возможные названия поля.
+const getEventTitle = (event) => {
+  return event.title ?? event.name ?? '';
+};
+
+const getEventDate = (event) => {
+  return (
+    event.date ??
+    event.start_date ??
+    event.event_date ??
+    event.day ??
+    event.at_date ??
+    null
+  );
+};
+
+// Получение периодичности.
+const getEventRecurrence = (event) => {
+  return (
+    event.recurrence ??
+    event.repeat ??
+    event.frequency ??
+    event.periodicity ??
+    null
+  );
+};
+
+// Названия периодичности.
+const RECURRENCE_LABELS = {
+  yearly: 'ежегодно',
+  monthly: 'ежемесячно',
+  weekly: 'еженедельно',
+  quarterly: 'раз в квартал',
+  'ежегодно': 'ежегодно',
+  'ежемесячно': 'ежемесячно',
+  'еженедельно': 'еженедельно',
+  'раз в квартал': 'раз в квартал',
+};
+
+// Русские названия месяцев.
+const RU_MONTHS_GENITIVE = [
+  'января',
+  'февраля',
+  'марта',
+  'апреля',
+  'мая',
+  'июня',
+  'июля',
+  'августа',
+  'сентября',
+  'октября',
+  'ноября',
+  'декабря',
+];
+
+// ============================================================
+// DATE HELPERS
+// ============================================================
+
+const parseMonthDay = (dateStr) => {
+  if (!dateStr) {
+    return {
+      month: 1,
+      day: 1,
+    };
+  }
+
+  const parts = String(dateStr)
+    .split('-')
+    .map(Number);
+
+  // YYYY-MM-DD
+  if (parts.length === 3) {
+    return {
+      month: parts[1],
+      day: parts[2],
+    };
+  }
+
+  // MM-DD
+  if (parts.length === 2) {
+    return {
+      month: parts[0],
+      day: parts[1],
+    };
+  }
+
+  return {
+    month: 1,
+    day: 1,
+  };
+};
+
+const compareMonthDay = (a, b) => {
+  const pa = parseMonthDay(a);
+  const pb = parseMonthDay(b);
+
+  return (
+    pa.month - pb.month ||
+    pa.day - pb.day
+  );
+};
+
+// ============================================================
+// PROJECT PAGE
+// ============================================================
+
 function ProjectPage() {
-  const {
-    projectId,
-  } = useParams();
+  const { projectId } = useParams();
+  const navigate = useNavigate();
 
-  const navigate =
-    useNavigate();
+  // ============================================================
+  // PROJECT / PAGES STATE
+  // ============================================================
 
-  const [
-    project,
-    setProject,
-  ] = useState(null);
+  const [project, setProject] = useState(null);
+  const [pages, setPages] = useState([]);
+  const [loading, setLoading] = useState(true);
 
-  const [
-    pages,
-    setPages,
-  ] = useState([]);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [editingPage, setEditingPage] = useState(null);
 
-  const [
-    loading,
-    setLoading,
-  ] = useState(true);
-
-  const [
-    isSidebarOpen,
-    setIsSidebarOpen,
-  ] = useState(true);
-
-  const [
-    isAddModalOpen,
-    setIsAddModalOpen,
-  ] = useState(false);
-
-  const [
-    editingPage,
-    setEditingPage,
-  ] = useState(null);
   const pagesSectionRef = useRef(null);
   const sitemapSectionRef = useRef(null);
+  const eventsSectionRef = useRef(null);
 
-  // =========================
-  // LOAD PROJECT
-  // =========================
+  // ============================================================
+  // EVENTS STATE
+  // ============================================================
 
-  const fetchProjectData =
-    useCallback(
-      async () => {
-        try {
-          setLoading(true);
+  const [events, setEvents] = useState([]);
+  const [topics, setTopics] = useState([]);
 
-          const projectsRes =
-            await getProjects();
+  const [regularSearch, setRegularSearch] = useState('');
+  const [irregularSearch, setIrregularSearch] = useState('');
 
-          const foundProject =
-            projectsRes.data.find(
-              (project) =>
-                project.id ===
-                Number(
-                  projectId
-                )
-            );
+  const [isEventModalOpen, setIsEventModalOpen] = useState(false);
+  const [editingEvent, setEditingEvent] = useState(null);
+  const [eventModalMode, setEventModalMode] = useState('regular');
 
-          setProject(
-            foundProject
-          );
+  const [isTopicModalOpen, setIsTopicModalOpen] = useState(false);
 
-          const pagesRes =
-            await getPages(
-              projectId
-            );
+  // ============================================================
+  // LOAD DATA
+  // ============================================================
 
-          setPages(
-            pagesRes.data || []
-          );
-        } catch (error) {
-          console.error(
-            'Ошибка загрузки данных:',
-            error
-          );
-        } finally {
-          setLoading(false);
-        }
-      },
-      [projectId]
-    );
+  const fetchProjectData = useCallback(async () => {
+    try {
+      setLoading(true);
+
+      // -------------------------
+      // PROJECTS
+      // -------------------------
+
+      const projectsRes = await getProjects();
+
+      const foundProject = projectsRes.data.find(
+        (project) =>
+          project.id === Number(projectId)
+      );
+
+      setProject(foundProject);
+
+      // -------------------------
+      // PAGES
+      // -------------------------
+
+      const pagesRes = await getPages(projectId);
+
+      setPages(
+        pagesRes.data || []
+      );
+
+      // -------------------------
+      // EVENTS
+      // -------------------------
+
+      const eventsRes = await getEvents();
+
+      console.log(
+        'EVENTS FROM DB:',
+        eventsRes.data
+      );
+
+      setEvents(
+        eventsRes.data || []
+      );
+
+      // -------------------------
+      // TOPICS
+      // -------------------------
+
+      const topicsRes = await getTopics();
+
+      setTopics(
+        topicsRes.data || []
+      );
+
+    } catch (error) {
+      console.error(
+        'Ошибка загрузки данных:',
+        error
+      );
+    } finally {
+      setLoading(false);
+    }
+  }, [projectId]);
 
   useEffect(() => {
     fetchProjectData();
-  }, [
-    fetchProjectData,
-  ]);
+  }, [fetchProjectData]);
 
-  // =========================
-  // PAGE TREE
-  // =========================
+  // ============================================================
+  // PATH NORMALIZATION
+  // ============================================================
 
-  const buildPageTree =
-    (pageList) => {
-      const pageMap =
-        {};
+  const normalizePath = (rawUrl) => {
+    if (!rawUrl) {
+      return '';
+    }
 
-      pageList.forEach(
-        (page) => {
-          pageMap[
-            page.id
-          ] = {
-            ...page,
-            children: [],
-          };
-        }
-      );
+    let path;
 
-      const tree = [];
+    try {
+      const parsed =
+        /^https?:\/\//i.test(rawUrl)
+          ? new URL(rawUrl)
+          : new URL(
+              rawUrl,
+              'http://dummy.local'
+            );
 
-      pageList.forEach(
-        (page) => {
+      path = parsed.pathname;
+
+    } catch (error) {
+      path = rawUrl;
+    }
+
+    return path
+      .replace(/\/+$/, '')
+      .toLowerCase();
+  };
+
+  const getPagePath = (page) => {
+    const firstLink =
+      page.links?.[0]?.url;
+
+    return normalizePath(firstLink);
+  };
+
+  // ============================================================
+  // BUILD PAGE TREE
+  // ============================================================
+
+  const buildPageTree = (pageList) => {
+    const items = pageList.map(
+      (page) => ({
+        ...page,
+        children: [],
+        _path: getPagePath(page),
+      })
+    );
+
+    const tree = [];
+
+    items.forEach((item) => {
+      if (!item._path) {
+        tree.push(item);
+        return;
+      }
+
+      let bestParent = null;
+
+      items.forEach(
+        (candidate) => {
           if (
-            page.parent_page_id
+            candidate === item ||
+            !candidate._path
+          ) {
+            return;
+          }
+
+          if (
+            item._path.startsWith(
+              candidate._path + '/'
+            )
           ) {
             if (
-              pageMap[
-                page.parent_page_id
-              ]
+              !bestParent ||
+              candidate._path.length >
+                bestParent._path.length
             ) {
-              pageMap[
-                page.parent_page_id
-              ].children.push(
-                pageMap[
-                  page.id
-                ]
-              );
+              bestParent = candidate;
             }
-          } else {
-            tree.push(
-              pageMap[
-                page.id
-              ]
-            );
           }
         }
       );
 
-      return tree;
-    };
+      if (bestParent) {
+        bestParent.children.push(item);
+      } else {
+        tree.push(item);
+      }
+    });
 
-  // =========================
+    return tree;
+  };
+
+  // ============================================================
   // RENDER SITEMAP
-  // =========================
+  // ============================================================
 
-  const renderSitemap =
-    (
-      pageList,
-      level = 0
-    ) => {
-      const sortedPages =
-        [
-          ...pageList,
-        ].sort(
-          (
-            a,
-            b
-          ) => {
-            if (
-              a.sort_order !==
-                undefined &&
-              b.sort_order !==
-                undefined
-            ) {
-              return (
-                a.sort_order -
-                b.sort_order
-              );
-            }
-
-            return a.title.localeCompare(
-              b.title
-            );
-          }
+  const renderSitemap = (
+    pageList,
+    level = 0
+  ) => {
+    const sortedPages = [
+      ...pageList,
+    ].sort((a, b) => {
+      if (
+        a.sort_order !== undefined &&
+        b.sort_order !== undefined
+      ) {
+        return (
+          a.sort_order -
+          b.sort_order
         );
-        const scrollToSection = (ref) => {
-          if (ref.current) {
-            ref.current.scrollIntoView({ 
-              behavior: 'smooth', // Плавная прокрутка
-              block: 'start'      // Прокрутить к началу элемента
-            });
-          }
-        };
+      }
 
-      return sortedPages.map(
-        (
-          page
-        ) => {
-          const hasChildren =
-            page.children &&
-            page.children
-              .length > 0;
+      return a.title.localeCompare(
+        b.title
+      );
+    });
 
-          const isRoot =
-            level === 0;
+    return sortedPages.map(
+      (page) => {
+        const hasChildren =
+          page.children &&
+          page.children.length > 0;
 
-          return (
+        const isRoot =
+          level === 0;
+
+        return (
+          <div key={page.id}>
             <div
-              key={
-                page.id
-              }
+              className="py-1 flex items-center"
+              style={{
+                paddingLeft:
+                  `${level * 20}px`,
+                color:
+                  colors.primary,
+              }}
             >
-              <div
-                className="py-1 flex items-center"
+              {!isRoot && (
+                <span
+                  style={{
+                    marginRight:
+                      '8px',
+                  }}
+                >
+                  •
+                </span>
+              )}
+
+              <span
                 style={{
-                  paddingLeft: `${
-                    level *
-                    20
-                  }px`,
+                  fontSize: isRoot
+                    ? '20px'
+                    : '18px',
+                  fontWeight: isRoot
+                    ? '600'
+                    : '400',
                   color:
                     colors.primary,
                 }}
               >
-                {!isRoot && (
-                  <span
-                    style={{
-                      marginRight:
-                        '8px',
-                    }}
-                  >
-                    •
-                  </span>
+                {page.title}
+              </span>
+            </div>
+
+            {hasChildren && (
+              <div>
+                {renderSitemap(
+                  page.children,
+                  level + 1
                 )}
+              </div>
+            )}
+          </div>
+        );
+      }
+    );
+  };
 
-                <span
-                  style={{
-                    fontSize:
-                      isRoot
-                        ? '20px'
-                        : '18px',
+  // ============================================================
+  // SEARCH
+  // ============================================================
 
-                    fontWeight:
-                      isRoot
-                        ? '600'
-                        : '400',
+  const normalizeSearchValue = (value) => {
+  return String(value ?? '')
+    .trim()
+    .toLowerCase();
+};
 
-                    color:
-                      colors.primary,
-                  }}
-                >
-                  {
-                    page.title
-                  }
-                </span>
+const getEventTopicName = (event, topicList) => {
+  return (
+    event.topic?.name ??
+    topicList.find(
+      (topic) =>
+        topic.id === event.topic_id
+    )?.name ??
+    ''
+  );
+};
+
+const getDateSearchValues = (date) => {
+  if (!date) {
+    return [];
+  }
+
+  const value = String(date);
+  const { month, day } = parseMonthDay(value);
+
+  const paddedMonth = String(month).padStart(2, '0');
+  const paddedDay = String(day).padStart(2, '0');
+
+  const values = [
+    value,
+    `${paddedDay}.${paddedMonth}`,
+    `${day}.${month}`,
+    `${paddedDay}.${paddedMonth}.${value.split('-')[0] ?? ''}`,
+    `${day}.${month}.${value.split('-')[0] ?? ''}`,
+    `${value.split('-')[0] ?? ''}.${paddedMonth}.${paddedDay}`,
+    `${value.split('-')[0] ?? ''}.${month}.${day}`,
+    `${paddedMonth}-${paddedDay}`,
+    `${day}-${month}`,
+    `${paddedDay}/${paddedMonth}`,
+    `${day}/${month}`,
+    `${paddedDay} ${RU_MONTHS_GENITIVE[month - 1] ?? ''}`,
+    `${day} ${RU_MONTHS_GENITIVE[month - 1] ?? ''}`,
+  ];
+
+  return values
+    .map(normalizeSearchValue)
+    .filter(Boolean);
+};
+
+const matchesSearchValue = (values, term) => {
+  const normalizedTerm = normalizeSearchValue(term);
+
+  if (!normalizedTerm) {
+    return true;
+  }
+
+  return values.some((value) =>
+    normalizeSearchValue(value).includes(normalizedTerm)
+  );
+};
+
+const matchesRegularSearch = (event, term) => {
+  const normalizedTerm = normalizeSearchValue(term);
+
+  if (!normalizedTerm) {
+    return true;
+  }
+
+  const title = getEventTitle(event);
+  const date = getEventDate(event);
+  const recurrence = getEventRecurrence(event);
+  const recurrenceLabel =
+    RECURRENCE_LABELS[recurrence] ?? recurrence ?? '';
+
+  return (
+    matchesSearchValue([title], normalizedTerm) ||
+    matchesSearchValue(getDateSearchValues(date), normalizedTerm) ||
+    matchesSearchValue([recurrence, recurrenceLabel], normalizedTerm)
+  );
+};
+
+const matchesIrregularSearch = (event, term, topicList) => {
+  const normalizedTerm = normalizeSearchValue(term);
+
+  if (!normalizedTerm) {
+    return true;
+  }
+
+  const title = getEventTitle(event);
+  const topicName = getEventTopicName(event, topicList);
+
+  return (
+    matchesSearchValue([title], normalizedTerm) ||
+    matchesSearchValue([topicName], normalizedTerm)
+  );
+};
+
+  // ============================================================
+  // REGULAR EVENTS
+  // ============================================================
+
+  const getRegularGroups =
+    useCallback(() => {
+      const filtered =
+        events.filter(
+          (event) =>
+            !isIrregularEvent(
+              event
+            ) &&
+            matchesRegularSearch(
+              event,
+              regularSearch
+            )
+        );
+
+      const groups = {};
+
+      filtered.forEach(
+        (event) => {
+          const date =
+            getEventDate(event);
+
+          const recurrence =
+            getEventRecurrence(
+              event
+            );
+
+          // Если у регулярного события
+          // нет даты или регулярности,
+          // не пытаемся его отображать
+          // в списке.
+          if (
+            !date ||
+            !recurrence
+          ) {
+            return;
+          }
+
+          const key =
+            `${date}_${recurrence}`;
+
+          if (!groups[key]) {
+            groups[key] = {
+              date,
+              recurrence,
+              items: [],
+            };
+          }
+
+          groups[key].items.push(
+            event
+          );
+        }
+      );
+
+      return Object.values(
+        groups
+      ).sort(
+        (a, b) =>
+          compareMonthDay(
+            a.date,
+            b.date
+          )
+      );
+    }, [
+      events,
+      regularSearch,
+    ]);
+
+  // ============================================================
+  // IRREGULAR EVENTS
+  // ============================================================
+
+  const getIrregularGroups =
+    useCallback(() => {
+      const filtered =
+        events.filter(
+          (event) =>
+            isIrregularEvent(
+              event
+            ) &&
+            matchesIrregularSearch(
+              event,
+              irregularSearch,
+              topics
+            )
+        );
+
+      const groups = {};
+
+      filtered.forEach(
+        (event) => {
+          const key =
+            event.topic_id ??
+            'none';
+
+          const topicName =
+            getEventTopicName(
+              event,
+              topics
+            ) ||
+            'Без темы';
+
+          if (!groups[key]) {
+            groups[key] = {
+              name: topicName,
+              items: [],
+            };
+          }
+
+          groups[key].items.push(
+            event
+          );
+        }
+      );
+
+      return Object.values(
+        groups
+      ).sort(
+        (a, b) =>
+          a.name.localeCompare(
+            b.name
+          )
+      );
+    }, [
+      events,
+      irregularSearch,
+      topics,
+    ]);
+
+  // ============================================================
+  // DELETE EVENT
+  // ============================================================
+
+  const handleDeleteEvent = async (eventId, clickEvent) => {
+    clickEvent?.stopPropagation();
+
+    const confirmed = window.confirm(
+      'Вы уверены, что хотите удалить это событие?'
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      await deleteEvent(eventId);
+
+      setEvents((prevEvents) =>
+        prevEvents.filter((event) => event.id !== eventId)
+      );
+    } catch (error) {
+      console.error('Ошибка удаления события:', error);
+      alert(error.message || 'Не удалось удалить событие');
+    }
+  };
+
+  // ============================================================
+  // RENDER REGULAR EVENTS
+  // ============================================================
+
+  const renderRegularEvents =
+    () => {
+      const groups =
+        getRegularGroups();
+
+      if (
+        groups.length === 0
+      ) {
+        return (
+          <div
+            className="text-center py-6"
+            style={{
+              color:
+                colors.secondaryText,
+            }}
+          >
+            Нет регулярных событий
+          </div>
+        );
+      }
+
+      return groups.map(
+        (group) => {
+          const {
+            day,
+            month,
+          } = parseMonthDay(
+            group.date
+          );
+
+          const monthName =
+            RU_MONTHS_GENITIVE[
+              month - 1
+            ] || '';
+
+          const recurrenceLabel =
+            RECURRENCE_LABELS[
+              group.recurrence
+            ] ||
+            group.recurrence ||
+            '';
+
+          return (
+            <div
+              key={`${group.date}-${group.recurrence}`}
+              className="mb-5"
+            >
+              {/* Дата + регулярность */}
+
+              <div
+                className="text-lg font-semibold"
+                style={{
+                  color:
+                    colors.black,
+                }}
+              >
+                {day}{' '}
+                {monthName}{' '}
+                —{' '}
+                {recurrenceLabel}
               </div>
 
-              {hasChildren && (
-                <div>
-                  {renderSitemap(
-                    page.children,
-                    level + 1
-                  )}
-                </div>
-              )}
+              {/* События */}
+
+              <ul className="mt-1">
+                {group.items.map(
+                  (event) => (
+                    <li
+                      key={event.id}
+                      className="flex items-center gap-2 py-0.5"
+                      style={{
+                        paddingLeft:
+                          '20px',
+                        color:
+                          colors.primary,
+                      }}
+                    >
+                      <span>
+                        •
+                      </span>
+
+                      <span>
+                        {getEventTitle(event)}
+                      </span>
+
+                      <button
+                        type="button"
+                        onClick={(clickEvent) =>
+                          handleOpenEditEvent(event, clickEvent)
+                        }
+                        className="p-1 rounded hover:text-blue-600 transition cursor-pointer"
+                        title="Редактировать событие"
+                      >
+                        <Pencil size={16} />
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={(clickEvent) =>
+                          handleDeleteEvent(event.id, clickEvent)
+                        }
+                        className="p-1 rounded hover:text-red-500 transition cursor-pointer"
+                        title="Удалить событие"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </li>
+                  )
+                )}
+              </ul>
             </div>
           );
         }
       );
     };
 
-  // =========================
-  // OPEN CREATE MODAL
-  // =========================
+  // ============================================================
+  // RENDER IRREGULAR EVENTS
+  // ============================================================
+
+  const renderIrregularEvents =
+    () => {
+      const groups =
+        getIrregularGroups();
+
+      if (
+        groups.length === 0
+      ) {
+        return (
+          <div
+            className="text-center py-6"
+            style={{
+              color:
+                colors.secondaryText,
+            }}
+          >
+            Нет нерегулярных событий
+          </div>
+        );
+      }
+
+      return groups.map(
+        (group, index) => (
+          <div
+            key={index}
+            className="mb-4"
+          >
+            <div
+              className="text-lg font-semibold"
+              style={{
+                color:
+                  colors.black,
+              }}
+            >
+              {group.name}:
+            </div>
+
+            <ul className="mt-1">
+              {group.items.map(
+                (event) => (
+                  <li
+                    key={event.id}
+                    className="flex items-center gap-2 py-0.5"
+                    style={{
+                      paddingLeft:
+                        '20px',
+                      color:
+                        colors.primary,
+                    }}
+                  >
+                    <span>
+                      •
+                    </span>
+
+                    <span>
+                      {getEventTitle(event)}
+                    </span>
+
+                    <button
+                      type="button"
+                      onClick={(clickEvent) =>
+                        handleOpenEditEvent(event, clickEvent)
+                      }
+                      className="p-1 rounded hover:text-blue-600 transition cursor-pointer"
+                      title="Редактировать событие"
+                    >
+                      <Pencil size={16} />
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={(clickEvent) =>
+                        handleDeleteEvent(event.id, clickEvent)
+                      }
+                      className="p-1 rounded hover:text-red-500 transition cursor-pointer"
+                      title="Удалить событие"
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  </li>
+                )
+              )}
+            </ul>
+          </div>
+        )
+      );
+    };
+
+  // ============================================================
+  // EVENT MODAL
+  // ============================================================
+
+  const handleOpenEditEvent = (event, clickEvent) => {
+    clickEvent?.stopPropagation();
+    setEditingEvent(event);
+    setEventModalMode(isIrregularEvent(event) ? 'irregular' : 'regular');
+    setIsEventModalOpen(true);
+  };
+
+  const handleOpenCreateEvent = (mode) => {
+    setEditingEvent(null);
+    setEventModalMode(mode);
+    setIsEventModalOpen(true);
+  };
+
+  const handleEventModalClose =
+    async (
+      shouldRefresh = false
+    ) => {
+      setIsEventModalOpen(
+        false
+      );
+
+      if (shouldRefresh) {
+        await fetchProjectData();
+      }
+    };
+
+  // ============================================================
+  // TOPIC MODAL
+  // ============================================================
+
+  const handleTopicModalClose = () => {
+    setIsTopicModalOpen(false);
+  };
+
+  const handleTopicChanged = async () => {
+    try {
+      const [topicsRes, eventsRes] = await Promise.all([
+        getTopics(),
+        getEvents(),
+      ]);
+
+      setTopics(topicsRes.data || []);
+      setEvents(eventsRes.data || []);
+    } catch (error) {
+      console.error('Ошибка обновления тем:', error);
+    }
+  };
+
+  // ============================================================
+  // CREATE PAGE
+  // ============================================================
 
   const handleOpenCreate =
     () => {
-      setEditingPage(
-        null
-      );
-
-      setIsAddModalOpen(
-        true
-      );
+      setEditingPage(null);
+      setIsAddModalOpen(true);
     };
 
-  // =========================
-  // OPEN EDIT MODAL
-  // =========================
+  // ============================================================
+  // EDIT PAGE
+  // ============================================================
 
   const handleEditPage =
-    (
-      page
-    ) => {
-      setEditingPage(
-        page
-      );
-
-      setIsAddModalOpen(
-        true
-      );
+    (page) => {
+      setEditingPage(page);
+      setIsAddModalOpen(true);
     };
 
-  // =========================
-  // CLOSE MODAL
-  // =========================
+  // ============================================================
+  // CLOSE PAGE MODAL
+  // ============================================================
 
   const handleModalClose =
     async (
@@ -337,20 +1046,16 @@ function ProjectPage() {
         false
       );
 
-      setEditingPage(
-        null
-      );
+      setEditingPage(null);
 
-      if (
-        shouldRefresh
-      ) {
+      if (shouldRefresh) {
         await fetchProjectData();
       }
     };
 
-  // =========================
+  // ============================================================
   // DELETE PAGE
-  // =========================
+  // ============================================================
 
   const handleDeletePage =
     async (
@@ -364,9 +1069,7 @@ function ProjectPage() {
           'Вы уверены, что хотите удалить эту страницу?'
         );
 
-      if (
-        !confirmed
-      ) {
+      if (!confirmed) {
         return;
       }
 
@@ -376,6 +1079,7 @@ function ProjectPage() {
         );
 
         await fetchProjectData();
+
       } catch (error) {
         console.error(
           'Ошибка удаления страницы:',
@@ -388,25 +1092,22 @@ function ProjectPage() {
       }
     };
 
-  // =========================
+  // ============================================================
   // SIDEBAR
-  // =========================
+  // ============================================================
 
   const toggleSidebar =
     () => {
       setIsSidebarOpen(
-        (prev) =>
-          !prev
+        (prev) => !prev
       );
     };
 
-  // =========================
+  // ============================================================
   // LOADING
-  // =========================
+  // ============================================================
 
-  if (
-    loading
-  ) {
+  if (loading) {
     return (
       <div className="h-screen flex items-center justify-center">
         Загрузка...
@@ -415,13 +1116,11 @@ function ProjectPage() {
   }
 
   const pageTree =
-    buildPageTree(
-      pages
-    );
+    buildPageTree(pages);
 
-  // =========================
+  // ============================================================
   // RENDER
-  // =========================
+  // ============================================================
 
   return (
     <div className="min-h-screen p-3">
@@ -432,10 +1131,9 @@ function ProjectPage() {
             colors.lightGray,
         }}
       >
-
-        {/* ========================= */}
+        {/* ================================================== */}
         {/* SIDEBAR */}
-        {/* ========================= */}
+        {/* ================================================== */}
 
         <aside
           className={`fixed left-3 top-3 h-[calc(100vh-1.5rem)] z-10 transition-all duration-300 overflow-hidden ${
@@ -446,15 +1144,12 @@ function ProjectPage() {
           style={{
             borderColor:
               colors.lightGray,
-
             backgroundColor:
               colors.blue,
           }}
         >
           <div className="w-[320px] h-full flex flex-col">
-
             <div className="px-5 pt-5 flex items-center gap-4">
-
               <button
                 onClick={
                   toggleSidebar
@@ -468,9 +1163,7 @@ function ProjectPage() {
 
               <button
                 onClick={() =>
-                  navigate(
-                    '/'
-                  )
+                  navigate('/')
                 }
               >
                 <Undo2
@@ -478,7 +1171,6 @@ function ProjectPage() {
                   className="text-black"
                 />
               </button>
-
             </div>
 
             <div
@@ -493,30 +1185,80 @@ function ProjectPage() {
               </div>
 
               <ul className="space-y-2 text-xl">
-                <li 
+                <li
                   className="flex items-center gap-2 cursor-pointer hover:opacity-70 transition-opacity"
-                  onClick={() => pagesSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+                  onClick={() =>
+                    pagesSectionRef.current?.scrollIntoView(
+                      {
+                        behavior:
+                          'smooth',
+                        block:
+                          'start',
+                      }
+                    )
+                  }
                 >
-                  <span>•</span>
-                  <span>Страницы</span>
+                  <span>
+                    •
+                  </span>
+
+                  <span>
+                    Страницы
+                  </span>
                 </li>
 
-                <li 
+                <li
                   className="flex items-center gap-2 cursor-pointer hover:opacity-70 transition-opacity"
-                  onClick={() => sitemapSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+                  onClick={() =>
+                    sitemapSectionRef.current?.scrollIntoView(
+                      {
+                        behavior:
+                          'smooth',
+                        block:
+                          'start',
+                      }
+                    )
+                  }
                 >
-                  <span>•</span>
-                  <span>Карта</span>
+                  <span>
+                    •
+                  </span>
+
+                  <span>
+                    Карта
+                  </span>
+                </li>
+
+                <li
+                  className="flex items-center gap-2 cursor-pointer hover:opacity-70 transition-opacity"
+                  onClick={() =>
+                    eventsSectionRef.current?.scrollIntoView(
+                      {
+                        behavior:
+                          'smooth',
+                        block:
+                          'start',
+                      }
+                    )
+                  }
+                >
+                  <span>
+                    •
+                  </span>
+
+                  <span>
+                    События
+                  </span>
                 </li>
 
                 <li className="flex items-center gap-2 opacity-50">
-                  <span>•</span>
-                  <span>События</span>
-                </li>
+                  <span>
+                    •
+                  </span>
 
-                <li className="flex items-center gap-2 opacity-50">
-                  <span>•</span>
-                  <span>Чеклисты</span>
+                  <span>
+                    Чеклисты
+                  </span>
                 </li>
               </ul>
 
@@ -529,19 +1271,22 @@ function ProjectPage() {
                   <span>
                     •
                   </span>
+
                   <span>
                     Генерация PDF
                   </span>
                 </li>
               </ul>
             </div>
-
           </div>
         </aside>
 
+        {/* ================================================== */}
+        {/* CLOSED SIDEBAR */}
+        {/* ================================================== */}
+
         {!isSidebarOpen && (
           <div className="fixed left-3 top-3 z-10 flex items-center gap-2">
-
             <button
               onClick={
                 toggleSidebar
@@ -556,9 +1301,7 @@ function ProjectPage() {
 
             <button
               onClick={() =>
-                navigate(
-                  '/'
-                )
+                navigate('/')
               }
               className="rounded-lg"
             >
@@ -567,20 +1310,18 @@ function ProjectPage() {
                 className="text-black"
               />
             </button>
-
           </div>
         )}
 
-        {/* ========================= */}
+        {/* ================================================== */}
         {/* HEADER */}
-        {/* ========================= */}
+        {/* ================================================== */}
 
         <div
           className="h-[70px] flex items-center justify-center px-10 border-b w-full"
           style={{
             borderBottomColor:
               colors.lightGray,
-
             backgroundColor:
               colors.background,
           }}
@@ -592,15 +1333,13 @@ function ProjectPage() {
                 colors.primary,
             }}
           >
-            {
-              project?.name
-            }
+            {project?.name}
           </h1>
         </div>
 
-        {/* ========================= */}
+        {/* ================================================== */}
         {/* MAIN */}
-        {/* ========================= */}
+        {/* ================================================== */}
 
         <main
           className={`flex-1 flex flex-col transition-all duration-300 ${
@@ -611,12 +1350,16 @@ function ProjectPage() {
         >
           <div className="mt-10">
 
-          {/* TITLE */}
-            <div 
+            {/* ================================================== */}
+            {/* PAGES */}
+            {/* ================================================== */}
+
+            <div
               ref={pagesSectionRef}
               className="scroll-mt-24 w-full max-w-[720px] mx-auto mb-7 grid grid-cols-3 items-center"
             >
               <div />
+
               <div className="flex justify-center">
                 <h2 className="text-2xl font-semibold text-black">
                   Страницы сайта
@@ -637,15 +1380,13 @@ function ProjectPage() {
                   + Добавить страницу
                 </button>
               </div>
-
             </div>
 
-            {/* ========================= */}
-            {/* TABLE */}
-            {/* ========================= */}
+            {/* ================================================== */}
+            {/* PAGES TABLE */}
+            {/* ================================================== */}
 
             <div className="w-full max-w-[720px] mx-auto">
-
               <table
                 className="w-full border border-collapse bg-white"
                 style={{
@@ -653,7 +1394,6 @@ function ProjectPage() {
                     colors.lightGray,
                 }}
               >
-
                 <thead>
                   <tr
                     style={{
@@ -661,7 +1401,6 @@ function ProjectPage() {
                         '#eef2f6',
                     }}
                   >
-
                     <th
                       className="border px-4 py-3 text-xl font-semibold text-left w-[240px]"
                       style={{
@@ -701,28 +1440,22 @@ function ProjectPage() {
                           colors.lightGray,
                       }}
                     />
-
                   </tr>
                 </thead>
 
                 <tbody>
-
                   {pages.map(
-                    (
-                      page
-                    ) => (
+                    (page) => (
                       <tr
                         key={
                           page.id
                         }
                       >
-
                         <td
                           className="border px-4 py-3 text-lg"
                           style={{
                             borderColor:
                               colors.lightGray,
-
                             color:
                               colors.primary,
                           }}
@@ -750,7 +1483,6 @@ function ProjectPage() {
                           style={{
                             borderColor:
                               colors.lightGray,
-
                             color:
                               colors.primary,
                           }}
@@ -789,7 +1521,9 @@ function ProjectPage() {
                             className="hover:text-blue-600 transition"
                           >
                             <Pencil
-                              size={18}
+                              size={
+                                18
+                              }
                             />
                           </button>
                         </td>
@@ -813,11 +1547,12 @@ function ProjectPage() {
                             }
                           >
                             <Trash2
-                              size={18}
+                              size={
+                                18
+                              }
                             />
                           </button>
                         </td>
-
                       </tr>
                     )
                   )}
@@ -837,19 +1572,24 @@ function ProjectPage() {
                       </td>
                     </tr>
                   )}
-
                 </tbody>
-
               </table>
-
             </div>
-            <div 
-              ref={sitemapSectionRef}
+
+            {/* ================================================== */}
+            {/* SITEMAP */}
+            {/* ================================================== */}
+
+            <div
+              ref={
+                sitemapSectionRef
+              }
               className="scroll-mt-24 mt-10 w-full max-w-[720px] mx-auto"
             >
               <h2 className="text-2xl font-semibold mb-6 text-center text-black">
                 Карта сайта
               </h2>
+
               <div
                 className="border rounded-lg p-6"
                 style={{
@@ -857,7 +1597,6 @@ function ProjectPage() {
                     colors.lightGray,
                 }}
               >
-
                 {pages.length ===
                 0 ? (
                   <div
@@ -876,19 +1615,241 @@ function ProjectPage() {
                     )}
                   </div>
                 )}
-
               </div>
-
             </div>
 
+            {/* ================================================== */}
+            {/* EVENTS */}
+            {/* ================================================== */}
+
+            <div
+              ref={
+                eventsSectionRef
+              }
+              className="scroll-mt-24 mt-10 w-full max-w-[720px] mx-auto pb-16"
+            >
+              <h2 className="text-2xl font-semibold mb-8 text-center text-black">
+                События
+              </h2>
+
+              {/* ================================================== */}
+              {/* REGULAR EVENTS */}
+              {/* ================================================== */}
+
+              <div className="mb-12">
+                <h3
+                  className="text-xl font-semibold mb-2"
+                  style={{
+                    color:
+                      colors.primary,
+                  }}
+                >
+                  Регулярные
+                </h3>
+
+                <hr
+                  className="mb-4"
+                  style={{
+                    borderColor:
+                      colors.lightGray,
+                  }}
+                />
+
+                <p
+                  className="text-base mb-4"
+                  style={{
+                    color:
+                      colors.text,
+                  }}
+                >
+                  Чеклисты, привязанные
+                  к конкретным регулярным
+                  событиям, которые можно
+                  обозначить датой. Каждая
+                  дата коротко пояснена
+                  сутью обновлений.
+                </p>
+
+                <hr
+                  className="mb-4"
+                  style={{
+                    borderColor:
+                      colors.lightGray,
+                  }}
+                />
+
+                <div className="flex gap-3 mb-8">
+                  <button
+                    onClick={() =>
+                      handleOpenCreateEvent('regular')
+                    }
+                    className="text-white font-semibold px-4 py-1.5 rounded-xl"
+                    style={{
+                      backgroundColor:
+                        colors.primary,
+                    }}
+                  >
+                    + Добавить
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-3 items-center mb-4">
+                  <div />
+
+                  <h4 className="text-xl font-semibold text-center text-black">
+                    Список событий
+                  </h4>
+
+                  <div className="flex justify-end">
+                    <input
+                      type="text"
+                      placeholder="Поиск..."
+                      value={
+                        regularSearch
+                      }
+                      onChange={(
+                        event
+                      ) =>
+                        setRegularSearch(
+                          event.target
+                            .value
+                        )
+                      }
+                      className="border rounded-md px-2 py-1 text-sm w-32"
+                      style={{
+                        borderColor:
+                          colors.lightGray,
+                      }}
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  {renderRegularEvents()}
+                </div>
+              </div>
+
+              {/* ================================================== */}
+              {/* IRREGULAR EVENTS */}
+              {/* ================================================== */}
+
+              <div>
+                <h3
+                  className="text-xl font-semibold mb-2"
+                  style={{
+                    color:
+                      colors.primary,
+                  }}
+                >
+                  Нерегулярные
+                </h3>
+
+                <hr
+                  className="mb-4"
+                  style={{
+                    borderColor:
+                      colors.lightGray,
+                  }}
+                />
+
+                <p
+                  className="text-base mb-4"
+                  style={{
+                    color:
+                      colors.text,
+                  }}
+                >
+                  Чеклисты, привязанные
+                  к конкретным событиям,
+                  которые могут произойти
+                  когда-угодно. Для каждого
+                  события коротко пояснена
+                  суть изменений.
+                </p>
+
+                <hr
+                  className="mb-4"
+                  style={{
+                    borderColor:
+                      colors.lightGray,
+                  }}
+                />
+
+                <div className="flex gap-3 mb-8">
+                  <button
+                    onClick={() =>
+                      handleOpenCreateEvent('irregular')
+                    }
+                    className="text-white font-semibold px-4 py-1.5 rounded-xl"
+                    style={{
+                      backgroundColor:
+                        colors.primary,
+                    }}
+                  >
+                    + Добавить
+                  </button>
+
+                  <button
+                    onClick={() =>
+                      setIsTopicModalOpen(
+                        true
+                      )
+                    }
+                    className="font-semibold px-4 py-1.5 rounded-xl border"
+                    style={{
+                      borderColor:
+                        colors.primary,
+                      color:
+                        colors.primary,
+                    }}
+                  >
+                    Темы
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-3 items-center mb-4">
+                  <div />
+
+                  <h4 className="text-xl font-semibold text-center text-black">
+                    Список событий
+                  </h4>
+
+                  <div className="flex justify-end">
+                    <input
+                      type="text"
+                      placeholder="Поиск..."
+                      value={
+                        irregularSearch
+                      }
+                      onChange={(
+                        event
+                      ) =>
+                        setIrregularSearch(
+                          event.target
+                            .value
+                        )
+                      }
+                      className="border rounded-md px-2 py-1 text-sm w-32"
+                      style={{
+                        borderColor:
+                          colors.lightGray,
+                      }}
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  {renderIrregularEvents()}
+                </div>
+              </div>
+            </div>
           </div>
         </main>
-
       </div>
 
-      {/* ========================= */}
-      {/* MODAL */}
-      {/* ========================= */}
+      {/* ================================================== */}
+      {/* PAGE MODAL */}
+      {/* ================================================== */}
 
       <AddPageModal
         isOpen={
@@ -911,6 +1872,1032 @@ function ProjectPage() {
         }
       />
 
+      {/* ================================================== */}
+      {/* EVENT MODAL */}
+      {/* ================================================== */}
+
+      <EventModal
+        isOpen={
+          isEventModalOpen
+        }
+        onClose={
+          handleEventModalClose
+        }
+        mode={
+          eventModalMode
+        }
+        topics={
+          topics
+        }
+        pages={
+          pages
+        }
+        editingEvent={
+          editingEvent
+        }
+      />
+
+      {/* ================================================== */}
+      {/* TOPIC MODAL */}
+      {/* ================================================== */}
+
+      <TopicModal
+        isOpen={
+          isTopicModalOpen
+        }
+        onClose={
+          handleTopicModalClose
+        }
+        topics={
+          topics
+        }
+        onChanged={
+          handleTopicChanged
+        }
+      />
+    </div>
+  );
+}
+
+// ============================================================
+// EVENT MODAL
+// ============================================================
+
+function EventModal({
+  isOpen,
+  onClose,
+  mode,
+  topics,
+  pages,
+  editingEvent,
+}) {
+  const [title, setTitle] = useState('');
+  const [date, setDate] = useState('');
+  const [recurrence, setRecurrence] = useState('ежегодно');
+  const [topicId, setTopicId] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  // Страницы и элементы проекта.
+  // Используются и для регулярных, и для нерегулярных событий.
+  const [pageElements, setPageElements] = useState([]);
+  const [elementSearch, setElementSearch] = useState('');
+  const [selectedElementIds, setSelectedElementIds] = useState([]);
+  const [loadingElements, setLoadingElements] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    let cancelled = false;
+
+    const loadEditingEvent = async () => {
+      setError('');
+      setElementSearch('');
+
+      if (!editingEvent) {
+        setTitle('');
+        setDate('');
+        setRecurrence('ежегодно');
+        setTopicId('');
+        setSelectedElementIds([]);
+        return;
+      }
+
+      setTitle(editingEvent.name ?? editingEvent.title ?? '');
+      setDate(getEventDate(editingEvent) || editingEvent.start_date || '');
+      setRecurrence(getEventRecurrence(editingEvent) || 'ежегодно');
+      setTopicId(
+        editingEvent.topic_id !== null && editingEvent.topic_id !== undefined
+          ? String(editingEvent.topic_id)
+          : ''
+      );
+
+      try {
+        const response = await getEventElementsByEvent(editingEvent.id);
+        const ids = (response.data || [])
+          .map((item) => item.element_id ?? item.id)
+          .filter((id) => id !== null && id !== undefined)
+          .map(Number);
+
+        if (!cancelled) {
+          setSelectedElementIds(ids);
+        }
+      } catch (loadError) {
+        console.error('Ошибка загрузки элементов события:', loadError);
+        if (!cancelled) {
+          setSelectedElementIds([]);
+          setError('Не удалось загрузить элементы, к которым привязано событие');
+        }
+      }
+    };
+
+    loadEditingEvent();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, mode, editingEvent]);
+
+  // Загружаем элементы проекта для обоих типов событий.
+  useEffect(() => {
+    if (!isOpen) return;
+
+    let cancelled = false;
+
+    const loadElements = async () => {
+      setLoadingElements(true);
+      setError('');
+
+      try {
+        const results = await Promise.all(
+          (pages || []).map(async (page) => {
+            try {
+              const response = await getElements(page.id);
+
+              return {
+                page,
+                elements: buildEventElementTree(response.data || []),
+              };
+            } catch (loadError) {
+              console.error(
+                `Ошибка загрузки элементов страницы ${page.id}:`,
+                loadError
+              );
+
+              return {
+                page,
+                elements: [],
+              };
+            }
+          })
+        );
+
+        if (!cancelled) {
+          setPageElements(results);
+        }
+      } catch (loadError) {
+        console.error('Ошибка загрузки элементов:', loadError);
+
+        if (!cancelled) {
+          setError('Не удалось загрузить элементы страниц');
+          setPageElements([]);
+        }
+      } finally {
+        if (!cancelled) {
+          setLoadingElements(false);
+        }
+      }
+    };
+
+    loadElements();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, pages]);
+
+  if (!isOpen) {
+    return null;
+  }
+
+  const toggleElement = (elementId) => {
+    setSelectedElementIds((prev) =>
+      prev.includes(elementId)
+        ? prev.filter((id) => id !== elementId)
+        : [...prev, elementId]
+    );
+  };
+
+  const filterElementTree = (elements, search) => {
+    const term = search.trim().toLowerCase();
+
+    if (!term) {
+      return elements;
+    }
+
+    return (elements || []).reduce((result, element) => {
+      const nameMatches = String(element.name || '')
+        .toLowerCase()
+        .includes(term);
+
+      const children = filterElementTree(
+        element.children || [],
+        search
+      );
+
+      if (nameMatches || children.length > 0) {
+        result.push({
+          ...element,
+          children,
+        });
+      }
+
+      return result;
+    }, []);
+  };
+
+  const pageMatchesSearch = (page, elements, search) => {
+    const term = search.trim().toLowerCase();
+
+    if (!term) {
+      return true;
+    }
+
+    if (
+      String(page.title || '')
+        .toLowerCase()
+        .includes(term)
+    ) {
+      return true;
+    }
+
+    const hasMatchingElement = (nodes) =>
+      (nodes || []).some(
+        (element) =>
+          String(element.name || '')
+            .toLowerCase()
+            .includes(term) ||
+          hasMatchingElement(element.children)
+      );
+
+    return hasMatchingElement(elements);
+  };
+
+  const renderEventElements = (elements, level = 0) => {
+    return (elements || []).map((element) => {
+      const checked = selectedElementIds.includes(element.id);
+
+      return (
+        <div key={element.id}>
+          <label
+            className="flex items-center gap-2 py-1.5 cursor-pointer"
+            style={{
+              marginLeft: `${level * 18}px`,
+              color: colors.primary,
+            }}
+          >
+            <input
+              type="checkbox"
+              checked={checked}
+              onChange={() => toggleElement(element.id)}
+              className="w-4 h-4"
+            />
+
+            <span>{element.name}</span>
+          </label>
+
+          {element.children?.length > 0 &&
+            renderEventElements(
+              element.children,
+              level + 1
+            )}
+        </div>
+      );
+    });
+  };
+
+  const visiblePages = (pageElements || []).reduce(
+    (result, item) => {
+      const filteredElements = filterElementTree(
+        item.elements || [],
+        elementSearch
+      );
+
+      if (
+        pageMatchesSearch(
+          item.page,
+          item.elements,
+          elementSearch
+        )
+      ) {
+        result.push({
+          ...item,
+          elements: filteredElements,
+        });
+      }
+
+      return result;
+    },
+    []
+  );
+
+  const handleSubmit = async (event) => {
+    event.preventDefault();
+    setError('');
+
+    if (!title.trim()) {
+      setError('Введите название события');
+      return;
+    }
+
+    if (!topicId && mode === 'irregular') {
+      setError('Выберите тему события');
+      return;
+    }
+
+    if (mode === 'regular') {
+      if (!date) {
+        setError('Укажите дату события');
+        return;
+      }
+
+      if (!recurrence) {
+        setError('Укажите периодичность');
+        return;
+      }
+    }
+
+    if (selectedElementIds.length === 0) {
+      setError(
+        'Выберите хотя бы один элемент, к которому привязать событие'
+      );
+      return;
+    }
+
+    const payload = {
+      event: {
+        name: title.trim(),
+        event_type: mode,
+        periodicity:
+          mode === 'regular'
+            ? recurrence
+            : null,
+        start_date:
+          mode === 'regular'
+            ? date
+            : null,
+        topic_id:
+          mode === 'irregular'
+            ? Number(topicId)
+            : null,
+      },
+      element_ids: selectedElementIds,
+    };
+
+    try {
+      setSaving(true);
+
+      if (editingEvent) {
+        await updateEvent(editingEvent.id, payload);
+      } else {
+        await createEvent(payload);
+      }
+
+      await onClose(true);
+    } catch (saveError) {
+      console.error(
+        'Ошибка создания события:',
+        saveError
+      );
+
+      const detail =
+        saveError.response?.data?.detail;
+
+      setError(
+        typeof detail === 'string'
+          ? detail
+          : editingEvent
+            ? 'Не удалось изменить событие'
+            : 'Не удалось создать событие'
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4">
+      <div
+        className="bg-white rounded-2xl p-6 w-[520px] max-w-full max-h-[90vh] overflow-hidden flex flex-col"
+        style={{
+          border: `1px solid ${colors.lightGray}`,
+        }}
+      >
+        <div className="flex items-center justify-between mb-4 flex-shrink-0">
+          <h3
+            className="text-xl font-semibold"
+            style={{
+              color: colors.primary,
+            }}
+          >
+            {editingEvent
+              ? 'Редактирование события'
+              : mode === 'regular'
+                ? 'Новое регулярное событие'
+                : 'Новое нерегулярное событие'}
+          </h3>
+
+          <button
+            type="button"
+            onClick={() => onClose(false)}
+            className="cursor-pointer"
+          >
+            <X size={20} />
+          </button>
+        </div>
+
+        <form
+          onSubmit={handleSubmit}
+          className="flex flex-col gap-3 min-h-0"
+        >
+          <input
+            type="text"
+            placeholder="Название события"
+            value={title}
+            onChange={(event) =>
+              setTitle(event.target.value)
+            }
+            className="border rounded-md px-3 py-2"
+            style={{
+              borderColor: colors.lightGray,
+              color: colors.black,
+            }}
+            required
+          />
+
+          {mode === 'regular' ? (
+            <div className="grid grid-cols-2 gap-3">
+              <select
+                value={recurrence}
+                onChange={(event) =>
+                  setRecurrence(
+                    event.target.value
+                  )
+                }
+                className="border rounded-md px-3 py-2 bg-white"
+                style={{
+                  borderColor:
+                    colors.lightGray,
+                  color: colors.black,
+                }}
+                required
+              >
+                <option value="ежегодно">
+                  Ежегодно
+                </option>
+
+                <option value="ежемесячно">
+                  Ежемесячно
+                </option>
+
+                <option value="раз в квартал">
+                  Раз в квартал
+                </option>
+
+                <option value="еженедельно">
+                  Еженедельно
+                </option>
+              </select>
+
+              <input
+                type="date"
+                value={date}
+                onChange={(event) =>
+                  setDate(event.target.value)
+                }
+                className="border rounded-md px-3 py-2"
+                style={{
+                  borderColor:
+                    colors.lightGray,
+                  color: colors.black,
+                }}
+                required
+              />
+            </div>
+          ) : (
+            <select
+              value={topicId}
+              onChange={(event) =>
+                setTopicId(
+                  event.target.value
+                )
+              }
+              className="border rounded-md px-3 py-2 bg-white"
+              style={{
+                borderColor:
+                  colors.lightGray,
+                color: colors.black,
+              }}
+              required
+            >
+              <option value="">
+                Выберите тему
+              </option>
+
+              {topics.map((topic) => (
+                <option
+                  key={topic.id}
+                  value={topic.id}
+                >
+                  {topic.name}
+                </option>
+              ))}
+            </select>
+          )}
+
+          <div
+            className="px-4 py-2.5 rounded-lg text-sm"
+            style={{
+              backgroundColor: colors.blue,
+              color: colors.primary,
+              border: `1px solid ${colors.lightGray}`,
+            }}
+          >
+            Выберите страницы и элементы,
+            к которым привязать событие
+          </div>
+
+          <div
+            className="flex items-center gap-2 px-3 py-2.5 rounded-lg bg-white"
+            style={{
+              border: `1px solid ${colors.lightGray}`,
+            }}
+          >
+            <Search
+              size={18}
+              style={{
+                color: colors.secondaryText,
+              }}
+            />
+
+            <input
+              type="text"
+              value={elementSearch}
+              onChange={(event) =>
+                setElementSearch(
+                  event.target.value
+                )
+              }
+              placeholder="Поиск страницы или элемента..."
+              className="flex-1 outline-none border-none bg-transparent text-sm"
+              style={{
+                color: colors.black,
+              }}
+            />
+          </div>
+
+          <div
+            className="rounded-lg p-3 overflow-auto min-h-[150px] max-h-[300px]"
+            style={{
+              border: `1px solid ${colors.lightGray}`,
+              backgroundColor: colors.white,
+            }}
+          >
+            {loadingElements ? (
+              <p
+                className="text-center py-5 text-sm"
+                style={{
+                  color:
+                    colors.secondaryText,
+                }}
+              >
+                Загрузка страниц и
+                элементов...
+              </p>
+            ) : visiblePages.length === 0 ? (
+              <p
+                className="text-center py-5 text-sm"
+                style={{
+                  color:
+                    colors.secondaryText,
+                }}
+              >
+                {pages.length === 0
+                  ? 'В проекте пока нет страниц'
+                  : 'Ничего не найдено'}
+              </p>
+            ) : (
+              visiblePages.map((item) => (
+                <div
+                  key={item.page.id}
+                  className="mb-3 last:mb-0"
+                >
+                  <div
+                    className="font-semibold text-sm py-1"
+                    style={{
+                      color:
+                        colors.primary,
+                    }}
+                  >
+                    {item.page.title}
+                  </div>
+
+                  {item.elements.length ===
+                  0 ? (
+                    <div
+                      className="text-sm py-1 pl-4"
+                      style={{
+                        color:
+                          colors.secondaryText,
+                      }}
+                    >
+                      Нет элементов
+                    </div>
+                  ) : (
+                    renderEventElements(
+                      item.elements
+                    )
+                  )}
+                </div>
+              ))
+            )}
+          </div>
+
+          {selectedElementIds.length >
+            0 && (
+            <div
+              className="text-sm"
+              style={{
+                color:
+                  colors.secondaryText,
+              }}
+            >
+              Выбрано элементов:{' '}
+              {selectedElementIds.length}
+            </div>
+          )}
+
+          {error && (
+            <div
+              className="text-sm px-3 py-2 rounded-lg"
+              style={{
+                color: '#b42318',
+                backgroundColor: '#fef3f2',
+                border:
+                  '1px solid #fecdca',
+              }}
+            >
+              {error}
+            </div>
+          )}
+
+          <button
+            type="submit"
+            disabled={
+              saving || loadingElements
+            }
+            className="text-white font-semibold py-2 rounded-xl mt-1"
+            style={{
+              backgroundColor:
+                colors.primary,
+              opacity:
+                saving || loadingElements
+                  ? 0.6
+                  : 1,
+              cursor:
+                saving || loadingElements
+                  ? 'not-allowed'
+                  : 'pointer',
+            }}
+          >
+            {saving
+              ? 'Сохранение...'
+              : editingEvent
+                ? 'Сохранить'
+                : 'Добавить'}
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// EVENT ELEMENTS HELPERS
+// ============================================================
+
+function buildEventElementTree(list) {
+  const source = list || [];
+
+  const hasNestedChildren = source.some(
+    (element) => Array.isArray(element.children) && element.children.length > 0
+  );
+
+  if (hasNestedChildren) {
+    return source.map((element) => ({
+      ...element,
+      children: buildEventElementTree(element.children || []),
+    }));
+  }
+
+  const items = source.map((element) => ({
+    ...element,
+    children: [],
+  }));
+
+  const byId = new Map(items.map((element) => [element.id, element]));
+  const roots = [];
+
+  items.forEach((element) => {
+    const parentId =
+      element.parent_element_id ?? element.parent_id ?? null;
+    const parent = parentId != null ? byId.get(parentId) : null;
+
+    if (parent) {
+      parent.children.push(element);
+    } else {
+      roots.push(element);
+    }
+  });
+
+  return roots;
+}
+
+// ============================================================
+// TOPIC MODAL
+// ============================================================
+
+function TopicModal({
+  isOpen,
+  onClose,
+  topics,
+  onChanged,
+}) {
+  const [name, setName] = useState('');
+  const [editingTopicId, setEditingTopicId] = useState(null);
+  const [editingName, setEditingName] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (isOpen) {
+      setName('');
+      setEditingTopicId(null);
+      setEditingName('');
+    }
+  }, [isOpen]);
+
+  if (!isOpen) {
+    return null;
+  }
+
+  const handleCreate = async (event) => {
+    event.preventDefault();
+
+    const trimmedName = name.trim();
+
+    if (!trimmedName) {
+      return;
+    }
+
+    try {
+      setSaving(true);
+
+      await createTopic({
+        name: trimmedName,
+      });
+
+      setName('');
+      await onChanged?.();
+    } catch (error) {
+      console.error('Ошибка создания темы:', error);
+
+      const detail = error.response?.data?.detail;
+      alert(
+        typeof detail === 'string'
+          ? detail
+          : 'Не удалось создать тему'
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleStartEdit = (topic) => {
+    setEditingTopicId(topic.id);
+    setEditingName(topic.name ?? '');
+  };
+
+  const handleCancelEdit = () => {
+    setEditingTopicId(null);
+    setEditingName('');
+  };
+
+  const handleSaveEdit = async (topicId) => {
+    const trimmedName = editingName.trim();
+
+    if (!trimmedName) {
+      return;
+    }
+
+    try {
+      setSaving(true);
+
+      await updateTopic(topicId, {
+        name: trimmedName,
+      });
+
+      setEditingTopicId(null);
+      setEditingName('');
+      await onChanged?.();
+    } catch (error) {
+      console.error('Ошибка редактирования темы:', error);
+
+      const detail = error.response?.data?.detail;
+      alert(
+        typeof detail === 'string'
+          ? detail
+          : 'Не удалось изменить тему'
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDelete = async (topic) => {
+    const confirmed = window.confirm(
+      `Удалить тему «${topic.name}»?\n\nВсе события этой темы будут перемещены в «Без темы».`
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      setSaving(true);
+
+      await deleteTopic(topic.id);
+      await onChanged?.();
+    } catch (error) {
+      console.error('Ошибка удаления темы:', error);
+
+      const detail = error.response?.data?.detail;
+      alert(
+        typeof detail === 'string'
+          ? detail
+          : 'Не удалось удалить тему'
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4">
+      <div
+        className="bg-white rounded-2xl p-6 w-[430px] max-w-full max-h-[90vh] overflow-hidden flex flex-col"
+        style={{
+          border: `1px solid ${colors.lightGray}`,
+        }}
+      >
+        <div className="flex items-center justify-between mb-5">
+          <h3
+            className="text-xl font-semibold"
+            style={{
+              color: colors.primary,
+            }}
+          >
+            Темы
+          </h3>
+
+          <button
+            type="button"
+            onClick={() => onClose(false)}
+            className="p-1 rounded hover:bg-gray-100 transition cursor-pointer"
+            disabled={saving}
+          >
+            <X size={20} />
+          </button>
+        </div>
+
+        <div className="mb-5 max-h-[280px] overflow-y-auto">
+          {topics.length === 0 ? (
+            <div
+              className="text-sm py-2"
+              style={{
+                color: colors.secondaryText,
+              }}
+            >
+              Тем пока нет
+            </div>
+          ) : (
+            <ul className="space-y-1">
+              {topics.map((topic) => (
+                <li
+                  key={topic.id}
+                  className="flex items-center gap-2 py-1.5"
+                >
+                  {editingTopicId === topic.id ? (
+                    <>
+                      <input
+                        type="text"
+                        value={editingName}
+                        onChange={(event) =>
+                          setEditingName(event.target.value)
+                        }
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter') {
+                            event.preventDefault();
+                            handleSaveEdit(topic.id);
+                          }
+
+                          if (event.key === 'Escape') {
+                            handleCancelEdit();
+                          }
+                        }}
+                        autoFocus
+                        className="border rounded-md px-2 py-1 flex-1 min-w-0"
+                        style={{
+                          borderColor: colors.lightGray,
+                          color: colors.primary,
+                        }}
+                        disabled={saving}
+                      />
+
+                      <button
+                        type="button"
+                        onClick={() => handleSaveEdit(topic.id)}
+                        className="p-1 rounded hover:text-green-600 transition cursor-pointer"
+                        title="Сохранить"
+                        disabled={saving}
+                      >
+                        ✓
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={handleCancelEdit}
+                        className="p-1 rounded hover:text-red-500 transition cursor-pointer"
+                        title="Отменить"
+                        disabled={saving}
+                      >
+                        <X size={16} />
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <span
+                        className="flex-1 min-w-0"
+                        style={{
+                          color: colors.primary,
+                        }}
+                      >
+                        • {topic.name}
+                      </span>
+
+                      <button
+                        type="button"
+                        onClick={() => handleStartEdit(topic)}
+                        className="p-1 rounded hover:text-blue-600 transition cursor-pointer"
+                        title="Редактировать тему"
+                        disabled={saving}
+                      >
+                        <Pencil size={16} />
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleDelete(topic)}
+                        className="p-1 rounded hover:text-red-500 transition cursor-pointer"
+                        title="Удалить тему"
+                        disabled={saving}
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+
+        <form
+          onSubmit={handleCreate}
+          className="flex gap-2 border-t pt-4"
+          style={{
+            borderColor: colors.lightGray,
+          }}
+        >
+          <input
+            type="text"
+            placeholder="Новая тема"
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            className="border rounded-md px-3 py-2 flex-1 min-w-0"
+            style={{
+              borderColor: colors.lightGray,
+              color: colors.primary,
+            }}
+            disabled={saving}
+          />
+
+          <button
+            type="submit"
+            disabled={saving || !name.trim()}
+            className="text-white font-semibold px-4 py-2 rounded-xl transition"
+            style={{
+              backgroundColor: colors.primary,
+              opacity: saving || !name.trim() ? 0.6 : 1,
+              cursor:
+                saving || !name.trim()
+                  ? 'not-allowed'
+                  : 'pointer',
+            }}
+          >
+            {saving ? 'Сохранение...' : 'Добавить'}
+          </button>
+        </form>
+      </div>
     </div>
   );
 }
