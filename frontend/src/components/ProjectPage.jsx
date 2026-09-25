@@ -21,6 +21,7 @@ import {
 
 import AddPageModal from './AddPageModal';
 import ChecklistsSection from './Checklist';
+import PdfGenerationSection from './PdfGenerationSection';
 
 import colors from '../colors';
 
@@ -42,160 +43,16 @@ import {
   deleteTopic,
 } from '../services/api';
 
-// ============================================================
-// EVENTS HELPERS
-// ============================================================
-
-// Регулярное событие:
-// {
-//   id,
-//   title,
-//   is_regular: true,
-//   date: '2026-09-01',
-//   recurrence: 'yearly'
-// }
-//
-// Нерегулярное событие:
-// {
-//   id,
-//   title,
-//   is_regular: false,
-//   topic_id,
-//   topic?: {
-//     id,
-//     name
-//   }
-// }
-
-// Определяем, является ли событие нерегулярным.
-export const isIrregularEvent = (event) => {
-  // Если backend явно сказал, что событие регулярное
-  if (event.is_regular === true) {
-    return false;
-  }
-
-  // Если backend явно сказал, что событие нерегулярное
-  if (event.is_regular === false) {
-    return true;
-  }
-
-  if (event.event_type !== undefined && event.event_type !== null) {
-    return event.event_type === 'irregular';
-  }
-
-  // Запасной вариант для старых данных
-  return (
-    (
-      event.topic_id !== undefined &&
-      event.topic_id !== null
-    ) ||
-    Boolean(event.topic)
-  );
-};
-
-// Получение даты события.
-// Поддерживаются разные возможные названия поля.
-export const getEventTitle = (event) => {
-  return event.title ?? event.name ?? '';
-};
-
-export const getEventDate = (event) => {
-  return (
-    event.date ??
-    event.start_date ??
-    event.event_date ??
-    event.day ??
-    event.at_date ??
-    null
-  );
-};
-
-// Получение периодичности.
-export const getEventRecurrence = (event) => {
-  return (
-    event.recurrence ??
-    event.repeat ??
-    event.frequency ??
-    event.periodicity ??
-    null
-  );
-};
-
-// Названия периодичности.
-export const RECURRENCE_LABELS = {
-  yearly: 'ежегодно',
-  monthly: 'ежемесячно',
-  weekly: 'еженедельно',
-  quarterly: 'раз в квартал',
-  'ежегодно': 'ежегодно',
-  'ежемесячно': 'ежемесячно',
-  'еженедельно': 'еженедельно',
-  'раз в квартал': 'раз в квартал',
-};
-
-// Русские названия месяцев.
-const RU_MONTHS_GENITIVE = [
-  'января',
-  'февраля',
-  'марта',
-  'апреля',
-  'мая',
-  'июня',
-  'июля',
-  'августа',
-  'сентября',
-  'октября',
-  'ноября',
-  'декабря',
-];
-
-// ============================================================
-// DATE HELPERS
-// ============================================================
-
-const parseMonthDay = (dateStr) => {
-  if (!dateStr) {
-    return {
-      month: 1,
-      day: 1,
-    };
-  }
-
-  const parts = String(dateStr)
-    .split('-')
-    .map(Number);
-
-  // YYYY-MM-DD
-  if (parts.length === 3) {
-    return {
-      month: parts[1],
-      day: parts[2],
-    };
-  }
-
-  // MM-DD
-  if (parts.length === 2) {
-    return {
-      month: parts[0],
-      day: parts[1],
-    };
-  }
-
-  return {
-    month: 1,
-    day: 1,
-  };
-};
-
-const compareMonthDay = (a, b) => {
-  const pa = parseMonthDay(a);
-  const pb = parseMonthDay(b);
-
-  return (
-    pa.month - pb.month ||
-    pa.day - pb.day
-  );
-};
+import {
+  isIrregularEvent,
+  getEventTitle,
+  getEventDate,
+  getEventRecurrence,
+  RECURRENCE_LABELS,
+  RU_MONTHS_GENITIVE,
+  parseMonthDay,
+  compareMonthDay,
+} from '../utils/eventHelpers';
 
 // ============================================================
 // PROJECT PAGE
@@ -221,6 +78,7 @@ function ProjectPage() {
   const sitemapSectionRef = useRef(null);
   const eventsSectionRef = useRef(null);
   const checklistsSectionRef = useRef(null);
+  const pdfSectionRef = useRef(null);
 
   // ============================================================
   // EVENTS STATE
@@ -275,11 +133,6 @@ function ProjectPage() {
 
       const eventsRes = await getEvents();
 
-      console.log(
-        'EVENTS FROM DB:',
-        eventsRes.data
-      );
-
       setEvents(
         eventsRes.data || []
       );
@@ -321,7 +174,7 @@ function ProjectPage() {
 
     try {
       const parsed =
-        /^https?:\/\//i.test(rawUrl)
+        /^https?:\/\//i.test(String(rawUrl))
           ? new URL(rawUrl)
           : new URL(
               rawUrl,
@@ -329,14 +182,20 @@ function ProjectPage() {
             );
 
       path = parsed.pathname;
-
     } catch (error) {
       path = rawUrl;
     }
 
-    return path
-      .replace(/\/+$/, '')
+    path = `/${String(path || '')}`
+      .replace(/\/+/g, '/')
       .toLowerCase();
+
+    // Для корня оставляем "/"
+    if (path.length > 1) {
+      path = path.replace(/\/+$/, '');
+    }
+
+    return path || '/';
   };
 
   const getPagePath = (page) => {
@@ -344,6 +203,67 @@ function ProjectPage() {
       page.links?.[0]?.url;
 
     return normalizePath(firstLink);
+  };
+
+  // ============================================================
+  // CHECK WHETHER PATH IS NESTED
+  // ============================================================
+
+  const isDescendantPath = (
+    parentPath,
+    childPath
+  ) => {
+    if (
+      !parentPath ||
+      !childPath ||
+      parentPath === childPath
+    ) {
+      return false;
+    }
+
+    // ----------------------------------------------------------
+    // Корень "/"
+    // ----------------------------------------------------------
+    //
+    // Не считаем любой путь автоматически
+    // дочерним корневой страницы.
+    //
+    // "/"       -> не является родителем "/fsdf"
+    // "/"       -> является родителем "/faculty/history"
+    //
+    // То есть вложенными считаем пути,
+    // у которых больше одного сегмента.
+    //
+    if (parentPath === '/') {
+      const childSegments =
+        childPath
+          .split('/')
+          .filter(Boolean);
+
+      return childSegments.length >= 2;
+    }
+
+    // ----------------------------------------------------------
+    // Обычный вложенный путь
+    // ----------------------------------------------------------
+    //
+    // /faculty
+    //      ↓
+    // /faculty/history
+    //
+    // /faculty/history
+    //      ↓
+    // /faculty/history/about
+    //
+    // Но:
+    //
+    // /faculty
+    //      X
+    // /faculty-old
+    //
+    return childPath.startsWith(
+      `${parentPath}/`
+    );
   };
 
   // ============================================================
@@ -362,6 +282,8 @@ function ProjectPage() {
     const tree = [];
 
     items.forEach((item) => {
+      // Страница без ссылки
+      // остается корневой.
       if (!item._path) {
         tree.push(item);
         return;
@@ -371,31 +293,66 @@ function ProjectPage() {
 
       items.forEach(
         (candidate) => {
+          // Нельзя сделать страницу
+          // родителем самой себя.
           if (
-            candidate === item ||
+            candidate === item
+          ) {
+            return;
+          }
+
+          // Нет пути — не можем
+          // определить вложенность.
+          if (
             !candidate._path
           ) {
             return;
           }
 
+          // Одинаковые пути
+          // не считаем вложенностью.
           if (
-            item._path.startsWith(
-              candidate._path + '/'
-            )
+            candidate._path ===
+            item._path
           ) {
-            if (
-              !bestParent ||
-              candidate._path.length >
-                bestParent._path.length
-            ) {
-              bestParent = candidate;
-            }
+            return;
+          }
+
+          const isNested =
+            isDescendantPath(
+              candidate._path,
+              item._path
+            );
+
+          if (!isNested) {
+            return;
+          }
+
+          // Если нашли несколько
+          // возможных родителей,
+          // выбираем ближайшего:
+          //
+          // /faculty
+          // /faculty/history
+          // /faculty/history/about
+          //
+          // Для /faculty/history/about
+          // родителем будет /faculty/history,
+          // а не /faculty.
+          if (
+            !bestParent ||
+            candidate._path.length >
+              bestParent._path.length
+          ) {
+            bestParent = candidate;
           }
         }
       );
 
       if (bestParent) {
-        bestParent.children.push(item);
+        bestParent.children.push(
+          item
+        );
       } else {
         tree.push(item);
       }
@@ -496,101 +453,120 @@ function ProjectPage() {
   // ============================================================
 
   const normalizeSearchValue = (value) => {
-  return String(value ?? '')
-    .trim()
-    .toLowerCase();
-};
+    return String(value ?? '')
+      .trim()
+      .toLowerCase();
+  };
 
-const getEventTopicName = (event, topicList) => {
-  return (
-    event.topic?.name ??
-    topicList.find(
-      (topic) =>
-        topic.id === event.topic_id
-    )?.name ??
-    ''
-  );
-};
+  const getEventTopicName = (event, topicList) => {
+    return (
+      event.topic?.name ??
+      topicList.find(
+        (topic) =>
+          topic.id === event.topic_id
+      )?.name ??
+      ''
+    );
+  };
 
-const getDateSearchValues = (date) => {
-  if (!date) {
-    return [];
-  }
+  const getDateSearchValues = (date) => {
+    if (!date) {
+      return [];
+    }
 
-  const value = String(date);
-  const { month, day } = parseMonthDay(value);
+    const value = String(date);
+    const { month, day } = parseMonthDay(value);
 
-  const paddedMonth = String(month).padStart(2, '0');
-  const paddedDay = String(day).padStart(2, '0');
+    const paddedMonth = String(month).padStart(2, '0');
+    const paddedDay = String(day).padStart(2, '0');
 
-  const values = [
-    value,
-    `${paddedDay}.${paddedMonth}`,
-    `${day}.${month}`,
-    `${paddedDay}.${paddedMonth}.${value.split('-')[0] ?? ''}`,
-    `${day}.${month}.${value.split('-')[0] ?? ''}`,
-    `${value.split('-')[0] ?? ''}.${paddedMonth}.${paddedDay}`,
-    `${value.split('-')[0] ?? ''}.${month}.${day}`,
-    `${paddedMonth}-${paddedDay}`,
-    `${day}-${month}`,
-    `${paddedDay}/${paddedMonth}`,
-    `${day}/${month}`,
-    `${paddedDay} ${RU_MONTHS_GENITIVE[month - 1] ?? ''}`,
-    `${day} ${RU_MONTHS_GENITIVE[month - 1] ?? ''}`,
-  ];
+    const values = [
+      value,
+      `${paddedDay}.${paddedMonth}`,
+      `${day}.${month}`,
+      `${paddedDay}.${paddedMonth}.${value.split('-')[0] ?? ''}`,
+      `${day}.${month}.${value.split('-')[0] ?? ''}`,
+      `${value.split('-')[0] ?? ''}.${paddedMonth}.${paddedDay}`,
+      `${value.split('-')[0] ?? ''}.${month}.${day}`,
+      `${paddedMonth}-${paddedDay}`,
+      `${day}-${month}`,
+      `${paddedDay}/${paddedMonth}`,
+      `${day}/${month}`,
+      `${paddedDay} ${RU_MONTHS_GENITIVE[month - 1] ?? ''}`,
+      `${day} ${RU_MONTHS_GENITIVE[month - 1] ?? ''}`,
+    ];
 
-  return values
-    .map(normalizeSearchValue)
-    .filter(Boolean);
-};
+    return values
+      .map(normalizeSearchValue)
+      .filter(Boolean);
+  };
 
-const matchesSearchValue = (values, term) => {
-  const normalizedTerm = normalizeSearchValue(term);
+  const matchesSearchValue = (values, term) => {
+    const normalizedTerm = normalizeSearchValue(term);
 
-  if (!normalizedTerm) {
-    return true;
-  }
+    if (!normalizedTerm) {
+      return true;
+    }
 
-  return values.some((value) =>
-    normalizeSearchValue(value).includes(normalizedTerm)
-  );
-};
+    return values.some((value) =>
+      normalizeSearchValue(value).includes(normalizedTerm)
+    );
+  };
 
-const matchesRegularSearch = (event, term) => {
-  const normalizedTerm = normalizeSearchValue(term);
+  const matchesRegularSearch = (event, term) => {
+    const normalizedTerm = normalizeSearchValue(term);
 
-  if (!normalizedTerm) {
-    return true;
-  }
+    if (!normalizedTerm) {
+      return true;
+    }
 
-  const title = getEventTitle(event);
-  const date = getEventDate(event);
-  const recurrence = getEventRecurrence(event);
-  const recurrenceLabel =
-    RECURRENCE_LABELS[recurrence] ?? recurrence ?? '';
+    const title = getEventTitle(event);
+    const date = getEventDate(event);
+    const recurrence = getEventRecurrence(event);
+    const recurrenceLabel =
+      RECURRENCE_LABELS[recurrence] ?? recurrence ?? '';
 
-  return (
-    matchesSearchValue([title], normalizedTerm) ||
-    matchesSearchValue(getDateSearchValues(date), normalizedTerm) ||
-    matchesSearchValue([recurrence, recurrenceLabel], normalizedTerm)
-  );
-};
+    return (
+      matchesSearchValue([title], normalizedTerm) ||
+      matchesSearchValue(
+        getDateSearchValues(date),
+        normalizedTerm
+      ) ||
+      matchesSearchValue(
+        [recurrence, recurrenceLabel],
+        normalizedTerm
+      )
+    );
+  };
 
-const matchesIrregularSearch = (event, term, topicList) => {
-  const normalizedTerm = normalizeSearchValue(term);
+  const matchesIrregularSearch = (
+    event,
+    term,
+    topicList
+  ) => {
+    const normalizedTerm = normalizeSearchValue(term);
 
-  if (!normalizedTerm) {
-    return true;
-  }
+    if (!normalizedTerm) {
+      return true;
+    }
 
-  const title = getEventTitle(event);
-  const topicName = getEventTopicName(event, topicList);
+    const title = getEventTitle(event);
+    const topicName = getEventTopicName(
+      event,
+      topicList
+    );
 
-  return (
-    matchesSearchValue([title], normalizedTerm) ||
-    matchesSearchValue([topicName], normalizedTerm)
-  );
-};
+    return (
+      matchesSearchValue(
+        [title],
+        normalizedTerm
+      ) ||
+      matchesSearchValue(
+        [topicName],
+        normalizedTerm
+      )
+    );
+  };
 
   // ============================================================
   // REGULAR EVENTS
@@ -729,7 +705,10 @@ const matchesIrregularSearch = (event, term, topicList) => {
   // DELETE EVENT
   // ============================================================
 
-  const handleDeleteEvent = async (eventId, clickEvent) => {
+  const handleDeleteEvent = async (
+    eventId,
+    clickEvent
+  ) => {
     clickEvent?.stopPropagation();
 
     const confirmed = window.confirm(
@@ -744,11 +723,21 @@ const matchesIrregularSearch = (event, term, topicList) => {
       await deleteEvent(eventId);
 
       setEvents((prevEvents) =>
-        prevEvents.filter((event) => event.id !== eventId)
+        prevEvents.filter(
+          (event) =>
+            event.id !== eventId
+        )
       );
     } catch (error) {
-      console.error('Ошибка удаления события:', error);
-      alert(error.message || 'Не удалось удалить событие');
+      console.error(
+        'Ошибка удаления события:',
+        error
+      );
+
+      alert(
+        error.message ||
+        'Не удалось удалить событие'
+      );
     }
   };
 
@@ -803,8 +792,6 @@ const matchesIrregularSearch = (event, term, topicList) => {
               key={`${group.date}-${group.recurrence}`}
               className="mb-5"
             >
-              {/* Дата + регулярность */}
-
               <div
                 className="text-lg font-semibold"
                 style={{
@@ -817,8 +804,6 @@ const matchesIrregularSearch = (event, term, topicList) => {
                 —{' '}
                 {recurrenceLabel}
               </div>
-
-              {/* События */}
 
               <ul className="mt-1">
                 {group.items.map(
@@ -844,7 +829,10 @@ const matchesIrregularSearch = (event, term, topicList) => {
                       <button
                         type="button"
                         onClick={(clickEvent) =>
-                          handleOpenEditEvent(event, clickEvent)
+                          handleOpenEditEvent(
+                            event,
+                            clickEvent
+                          )
                         }
                         className="p-1 rounded hover:text-blue-600 transition cursor-pointer"
                         title="Редактировать событие"
@@ -855,7 +843,10 @@ const matchesIrregularSearch = (event, term, topicList) => {
                       <button
                         type="button"
                         onClick={(clickEvent) =>
-                          handleDeleteEvent(event.id, clickEvent)
+                          handleDeleteEvent(
+                            event.id,
+                            clickEvent
+                          )
                         }
                         className="p-1 rounded hover:text-red-500 transition cursor-pointer"
                         title="Удалить событие"
@@ -937,7 +928,10 @@ const matchesIrregularSearch = (event, term, topicList) => {
                     <button
                       type="button"
                       onClick={(clickEvent) =>
-                        handleOpenEditEvent(event, clickEvent)
+                        handleOpenEditEvent(
+                          event,
+                          clickEvent
+                        )
                       }
                       className="p-1 rounded hover:text-blue-600 transition cursor-pointer"
                       title="Редактировать событие"
@@ -948,7 +942,10 @@ const matchesIrregularSearch = (event, term, topicList) => {
                     <button
                       type="button"
                       onClick={(clickEvent) =>
-                        handleDeleteEvent(event.id, clickEvent)
+                        handleDeleteEvent(
+                          event.id,
+                          clickEvent
+                        )
                       }
                       className="p-1 rounded hover:text-red-500 transition cursor-pointer"
                       title="Удалить событие"
@@ -968,14 +965,24 @@ const matchesIrregularSearch = (event, term, topicList) => {
   // EVENT MODAL
   // ============================================================
 
-  const handleOpenEditEvent = (event, clickEvent) => {
+  const handleOpenEditEvent = (
+    event,
+    clickEvent
+  ) => {
     clickEvent?.stopPropagation();
+
     setEditingEvent(event);
-    setEventModalMode(isIrregularEvent(event) ? 'irregular' : 'regular');
+    setEventModalMode(
+      isIrregularEvent(event)
+        ? 'irregular'
+        : 'regular'
+    );
     setIsEventModalOpen(true);
   };
 
-  const handleOpenCreateEvent = (mode) => {
+  const handleOpenCreateEvent = (
+    mode
+  ) => {
     setEditingEvent(null);
     setEventModalMode(mode);
     setIsEventModalOpen(true);
@@ -1002,19 +1009,31 @@ const matchesIrregularSearch = (event, term, topicList) => {
     setIsTopicModalOpen(false);
   };
 
-  const handleTopicChanged = async () => {
-    try {
-      const [topicsRes, eventsRes] = await Promise.all([
-        getTopics(),
-        getEvents(),
-      ]);
+  const handleTopicChanged =
+    async () => {
+      try {
+        const [
+          topicsRes,
+          eventsRes,
+        ] = await Promise.all([
+          getTopics(),
+          getEvents(),
+        ]);
 
-      setTopics(topicsRes.data || []);
-      setEvents(eventsRes.data || []);
-    } catch (error) {
-      console.error('Ошибка обновления тем:', error);
-    }
-  };
+        setTopics(
+          topicsRes.data || []
+        );
+
+        setEvents(
+          eventsRes.data || []
+        );
+      } catch (error) {
+        console.error(
+          'Ошибка обновления тем:',
+          error
+        );
+      }
+    };
 
   // ============================================================
   // CREATE PAGE
@@ -1272,6 +1291,28 @@ const matchesIrregularSearch = (event, term, topicList) => {
 
                   <span>
                     Чеклисты
+                  </span>
+                </li>
+
+                <li
+                  className="flex items-center gap-2 cursor-pointer hover:opacity-70 transition-opacity"
+                  onClick={() =>
+                    pdfSectionRef.current?.scrollIntoView(
+                      {
+                        behavior:
+                          'smooth',
+                        block:
+                          'start',
+                      }
+                    )
+                  }
+                >
+                  <span>
+                    •
+                  </span>
+
+                  <span>
+                    Генерация PDF
                   </span>
                 </li>
               </ul>
@@ -1870,7 +1911,27 @@ const matchesIrregularSearch = (event, term, topicList) => {
                 Чеклисты
               </h2>
 
-              <ChecklistsSection projectId={projectId} pages={pages} />
+              <ChecklistsSection
+                projectId={projectId}
+                pages={pages}
+              />
+            </div>
+
+            {/* ================================================== */}
+            {/* PDF GENERATION */}
+            {/* ================================================== */}
+
+            <div
+              ref={pdfSectionRef}
+              className="scroll-mt-24 mt-10 w-full max-w-[720px] mx-auto pb-16"
+            >
+              <PdfGenerationSection
+                project={project}
+                pages={pages}
+                pageTree={pageTree}
+                events={events}
+                topics={topics}
+              />
             </div>
           </div>
         </main>
@@ -1992,30 +2053,67 @@ function EventModal({
         return;
       }
 
-      setTitle(editingEvent.name ?? editingEvent.title ?? '');
-      setDate(getEventDate(editingEvent) || editingEvent.start_date || '');
-      setRecurrence(getEventRecurrence(editingEvent) || 'ежегодно');
+      setTitle(
+        editingEvent.name ??
+        editingEvent.title ??
+        ''
+      );
+
+      setDate(
+        getEventDate(editingEvent) ||
+        editingEvent.start_date ||
+        ''
+      );
+
+      setRecurrence(
+        getEventRecurrence(editingEvent) ||
+        'ежегодно'
+      );
+
       setTopicId(
-        editingEvent.topic_id !== null && editingEvent.topic_id !== undefined
+        editingEvent.topic_id !== null &&
+        editingEvent.topic_id !== undefined
           ? String(editingEvent.topic_id)
           : ''
       );
 
       try {
-        const response = await getEventElementsByEvent(editingEvent.id);
-        const ids = (response.data || [])
-          .map((item) => item.element_id ?? item.id)
-          .filter((id) => id !== null && id !== undefined)
+        const response =
+          await getEventElementsByEvent(
+            editingEvent.id
+          );
+
+        const ids = (
+          response.data || []
+        )
+          .map(
+            (item) =>
+              item.element_id ??
+              item.id
+          )
+          .filter(
+            (id) =>
+              id !== null &&
+              id !== undefined
+          )
           .map(Number);
 
         if (!cancelled) {
-          setSelectedElementIds(ids);
+          setSelectedElementIds(
+            ids
+          );
         }
       } catch (loadError) {
-        console.error('Ошибка загрузки элементов события:', loadError);
+        console.error(
+          'Ошибка загрузки элементов события:',
+          loadError
+        );
+
         if (!cancelled) {
           setSelectedElementIds([]);
-          setError('Не удалось загрузить элементы, к которым привязано событие');
+          setError(
+            'Не удалось загрузить элементы, к которым привязано событие'
+          );
         }
       }
     };
@@ -2025,7 +2123,11 @@ function EventModal({
     return () => {
       cancelled = true;
     };
-  }, [isOpen, mode, editingEvent]);
+  }, [
+    isOpen,
+    mode,
+    editingEvent,
+  ]);
 
   // Загружаем элементы проекта для обоих типов событий.
   useEffect(() => {
@@ -2038,42 +2140,61 @@ function EventModal({
       setError('');
 
       try {
-        const results = await Promise.all(
-          (pages || []).map(async (page) => {
-            try {
-              const response = await getElements(page.id);
+        const results =
+          await Promise.all(
+            (pages || []).map(
+              async (page) => {
+                try {
+                  const response =
+                    await getElements(
+                      page.id
+                    );
 
-              return {
-                page,
-                elements: buildEventElementTree(response.data || []),
-              };
-            } catch (loadError) {
-              console.error(
-                `Ошибка загрузки элементов страницы ${page.id}:`,
-                loadError
-              );
+                  return {
+                    page,
+                    elements:
+                      buildEventElementTree(
+                        response.data || []
+                      ),
+                  };
+                } catch (loadError) {
+                  console.error(
+                    `Ошибка загрузки элементов страницы ${page.id}:`,
+                    loadError
+                  );
 
-              return {
-                page,
-                elements: [],
-              };
-            }
-          })
+                  return {
+                    page,
+                    elements: [],
+                  };
+                }
+              }
+            )
+          );
+
+        if (!cancelled) {
+          setPageElements(
+            results
+          );
+        }
+      } catch (loadError) {
+        console.error(
+          'Ошибка загрузки элементов:',
+          loadError
         );
 
         if (!cancelled) {
-          setPageElements(results);
-        }
-      } catch (loadError) {
-        console.error('Ошибка загрузки элементов:', loadError);
+          setError(
+            'Не удалось загрузить элементы страниц'
+          );
 
-        if (!cancelled) {
-          setError('Не удалось загрузить элементы страниц');
           setPageElements([]);
         }
       } finally {
         if (!cancelled) {
-          setLoadingElements(false);
+          setLoadingElements(
+            false
+          );
         }
       }
     };
@@ -2083,230 +2204,332 @@ function EventModal({
     return () => {
       cancelled = true;
     };
-  }, [isOpen, pages]);
+  }, [
+    isOpen,
+    pages,
+  ]);
 
   if (!isOpen) {
     return null;
   }
 
-  const toggleElement = (elementId) => {
-    setSelectedElementIds((prev) =>
-      prev.includes(elementId)
-        ? prev.filter((id) => id !== elementId)
-        : [...prev, elementId]
+  const toggleElement = (
+    elementId
+  ) => {
+    setSelectedElementIds(
+      (prev) =>
+        prev.includes(elementId)
+          ? prev.filter(
+              (id) =>
+                id !== elementId
+            )
+          : [
+              ...prev,
+              elementId,
+            ]
     );
   };
 
-  const filterElementTree = (elements, search) => {
-    const term = search.trim().toLowerCase();
+  const filterElementTree = (
+    elements,
+    search
+  ) => {
+    const term =
+      search
+        .trim()
+        .toLowerCase();
 
     if (!term) {
       return elements;
     }
 
-    return (elements || []).reduce((result, element) => {
-      const nameMatches = String(element.name || '')
-        .toLowerCase()
-        .includes(term);
+    return (
+      elements || []
+    ).reduce(
+      (result, element) => {
+        const nameMatches =
+          String(
+            element.name || ''
+          )
+            .toLowerCase()
+            .includes(term);
 
-      const children = filterElementTree(
-        element.children || [],
-        search
-      );
+        const children =
+          filterElementTree(
+            element.children || [],
+            search
+          );
 
-      if (nameMatches || children.length > 0) {
-        result.push({
-          ...element,
-          children,
-        });
-      }
+        if (
+          nameMatches ||
+          children.length > 0
+        ) {
+          result.push({
+            ...element,
+            children,
+          });
+        }
 
-      return result;
-    }, []);
+        return result;
+      },
+      []
+    );
   };
 
-  const pageMatchesSearch = (page, elements, search) => {
-    const term = search.trim().toLowerCase();
+  const pageMatchesSearch = (
+    page,
+    elements,
+    search
+  ) => {
+    const term =
+      search
+        .trim()
+        .toLowerCase();
 
     if (!term) {
       return true;
     }
 
     if (
-      String(page.title || '')
+      String(
+        page.title || ''
+      )
         .toLowerCase()
         .includes(term)
     ) {
       return true;
     }
 
-    const hasMatchingElement = (nodes) =>
+    const hasMatchingElement = (
+      nodes
+    ) =>
       (nodes || []).some(
         (element) =>
-          String(element.name || '')
+          String(
+            element.name || ''
+          )
             .toLowerCase()
             .includes(term) ||
-          hasMatchingElement(element.children)
+          hasMatchingElement(
+            element.children
+          )
       );
 
-    return hasMatchingElement(elements);
+    return hasMatchingElement(
+      elements
+    );
   };
 
-  const renderEventElements = (elements, level = 0) => {
-    return (elements || []).map((element) => {
-      const checked = selectedElementIds.includes(element.id);
+  const renderEventElements = (
+    elements,
+    level = 0
+  ) => {
+    return (
+      elements || []
+    ).map(
+      (element) => {
+        const checked =
+          selectedElementIds.includes(
+            element.id
+          );
 
-      return (
-        <div key={element.id}>
-          <label
-            className="flex items-center gap-2 py-1.5 cursor-pointer"
-            style={{
-              marginLeft: `${level * 18}px`,
-              color: colors.primary,
-            }}
+        return (
+          <div
+            key={element.id}
           >
-            <input
-              type="checkbox"
-              checked={checked}
-              onChange={() => toggleElement(element.id)}
-              className="w-4 h-4"
-            />
+            <label
+              className="flex items-center gap-2 py-1.5 cursor-pointer"
+              style={{
+                marginLeft: `${level * 18}px`,
+                color:
+                  colors.primary,
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={
+                  checked
+                }
+                onChange={() =>
+                  toggleElement(
+                    element.id
+                  )
+                }
+                className="w-4 h-4"
+              />
 
-            <span>{element.name}</span>
-          </label>
+              <span>
+                {element.name}
+              </span>
+            </label>
 
-          {element.children?.length > 0 &&
-            renderEventElements(
-              element.children,
-              level + 1
-            )}
-        </div>
-      );
-    });
+            {element.children?.length >
+              0 &&
+              renderEventElements(
+                element.children,
+                level + 1
+              )}
+          </div>
+        );
+      }
+    );
   };
 
-  const visiblePages = (pageElements || []).reduce(
-    (result, item) => {
-      const filteredElements = filterElementTree(
-        item.elements || [],
-        elementSearch
-      );
+  const visiblePages =
+    (
+      pageElements || []
+    ).reduce(
+      (result, item) => {
+        const filteredElements =
+          filterElementTree(
+            item.elements || [],
+            elementSearch
+          );
+
+        if (
+          pageMatchesSearch(
+            item.page,
+            item.elements,
+            elementSearch
+          )
+        ) {
+          result.push({
+            ...item,
+            elements:
+              filteredElements,
+          });
+        }
+
+        return result;
+      },
+      []
+    );
+
+  const handleSubmit =
+    async (event) => {
+      event.preventDefault();
+      setError('');
+
+      if (!title.trim()) {
+        setError(
+          'Введите название события'
+        );
+
+        return;
+      }
 
       if (
-        pageMatchesSearch(
-          item.page,
-          item.elements,
-          elementSearch
-        )
+        !topicId &&
+        mode === 'irregular'
       ) {
-        result.push({
-          ...item,
-          elements: filteredElements,
-        });
-      }
+        setError(
+          'Выберите тему события'
+        );
 
-      return result;
-    },
-    []
-  );
-
-  const handleSubmit = async (event) => {
-    event.preventDefault();
-    setError('');
-
-    if (!title.trim()) {
-      setError('Введите название события');
-      return;
-    }
-
-    if (!topicId && mode === 'irregular') {
-      setError('Выберите тему события');
-      return;
-    }
-
-    if (mode === 'regular') {
-      if (!date) {
-        setError('Укажите дату события');
         return;
       }
 
-      if (!recurrence) {
-        setError('Укажите периодичность');
+      if (mode === 'regular') {
+        if (!date) {
+          setError(
+            'Укажите дату события'
+          );
+
+          return;
+        }
+
+        if (!recurrence) {
+          setError(
+            'Укажите периодичность'
+          );
+
+          return;
+        }
+      }
+
+      if (
+        selectedElementIds.length === 0
+      ) {
+        setError(
+          'Выберите хотя бы один элемент, к которому привязать событие'
+        );
+
         return;
       }
-    }
 
-    if (selectedElementIds.length === 0) {
-      setError(
-        'Выберите хотя бы один элемент, к которому привязать событие'
-      );
-      return;
-    }
+      const payload = {
+        event: {
+          name: title.trim(),
+          event_type: mode,
+          periodicity:
+            mode === 'regular'
+              ? recurrence
+              : null,
+          start_date:
+            mode === 'regular'
+              ? date
+              : null,
+          topic_id:
+            mode === 'irregular'
+              ? Number(topicId)
+              : null,
+        },
+        element_ids:
+          selectedElementIds,
+      };
 
-    const payload = {
-      event: {
-        name: title.trim(),
-        event_type: mode,
-        periodicity:
-          mode === 'regular'
-            ? recurrence
-            : null,
-        start_date:
-          mode === 'regular'
-            ? date
-            : null,
-        topic_id:
-          mode === 'irregular'
-            ? Number(topicId)
-            : null,
-      },
-      element_ids: selectedElementIds,
+      try {
+        setSaving(true);
+
+        if (editingEvent) {
+          await updateEvent(
+            editingEvent.id,
+            payload
+          );
+        } else {
+          await createEvent(
+            payload
+          );
+        }
+
+        await onClose(true);
+      } catch (saveError) {
+        console.error(
+          'Ошибка создания события:',
+          saveError
+        );
+
+        const detail =
+          saveError.response?.data?.detail;
+
+        setError(
+          typeof detail ===
+            'string'
+            ? detail
+            : editingEvent
+              ? 'Не удалось изменить событие'
+              : 'Не удалось создать событие'
+        );
+      } finally {
+        setSaving(false);
+      }
     };
-
-    try {
-      setSaving(true);
-
-      if (editingEvent) {
-        await updateEvent(editingEvent.id, payload);
-      } else {
-        await createEvent(payload);
-      }
-
-      await onClose(true);
-    } catch (saveError) {
-      console.error(
-        'Ошибка создания события:',
-        saveError
-      );
-
-      const detail =
-        saveError.response?.data?.detail;
-
-      setError(
-        typeof detail === 'string'
-          ? detail
-          : editingEvent
-            ? 'Не удалось изменить событие'
-            : 'Не удалось создать событие'
-      );
-    } finally {
-      setSaving(false);
-    }
-  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4">
       <div
         className="bg-white rounded-2xl p-6 w-[520px] max-w-full max-h-[90vh] overflow-hidden flex flex-col"
         style={{
-          border: `1px solid ${colors.lightGray}`,
+          border:
+            `1px solid ${colors.lightGray}`,
         }}
       >
         <div className="flex items-center justify-between mb-4 flex-shrink-0">
           <h3
             className="text-xl font-semibold"
             style={{
-              color: colors.primary,
+              color:
+                colors.primary,
             }}
           >
             {editingEvent
@@ -2318,7 +2541,9 @@ function EventModal({
 
           <button
             type="button"
-            onClick={() => onClose(false)}
+            onClick={() =>
+              onClose(false)
+            }
             className="cursor-pointer"
           >
             <X size={20} />
@@ -2334,12 +2559,16 @@ function EventModal({
             placeholder="Название события"
             value={title}
             onChange={(event) =>
-              setTitle(event.target.value)
+              setTitle(
+                event.target.value
+              )
             }
             className="border rounded-md px-3 py-2"
             style={{
-              borderColor: colors.lightGray,
-              color: colors.black,
+              borderColor:
+                colors.lightGray,
+              color:
+                colors.black,
             }}
             required
           />
@@ -2347,17 +2576,23 @@ function EventModal({
           {mode === 'regular' ? (
             <div className="grid grid-cols-2 gap-3">
               <select
-                value={recurrence}
-                onChange={(event) =>
+                value={
+                  recurrence
+                }
+                onChange={(
+                  event
+                ) =>
                   setRecurrence(
-                    event.target.value
+                    event.target
+                      .value
                   )
                 }
                 className="border rounded-md px-3 py-2 bg-white"
                 style={{
                   borderColor:
                     colors.lightGray,
-                  color: colors.black,
+                  color:
+                    colors.black,
                 }}
                 required
               >
@@ -2381,31 +2616,42 @@ function EventModal({
               <input
                 type="date"
                 value={date}
-                onChange={(event) =>
-                  setDate(event.target.value)
+                onChange={(
+                  event
+                ) =>
+                  setDate(
+                    event.target.value
+                  )
                 }
                 className="border rounded-md px-3 py-2"
                 style={{
                   borderColor:
                     colors.lightGray,
-                  color: colors.black,
+                  color:
+                    colors.black,
                 }}
                 required
               />
             </div>
           ) : (
             <select
-              value={topicId}
-              onChange={(event) =>
+              value={
+                topicId
+              }
+              onChange={(
+                event
+              ) =>
                 setTopicId(
-                  event.target.value
+                  event.target
+                    .value
                 )
               }
               className="border rounded-md px-3 py-2 bg-white"
               style={{
                 borderColor:
                   colors.lightGray,
-                color: colors.black,
+                color:
+                  colors.black,
               }}
               required
             >
@@ -2413,23 +2659,32 @@ function EventModal({
                 Выберите тему
               </option>
 
-              {topics.map((topic) => (
-                <option
-                  key={topic.id}
-                  value={topic.id}
-                >
-                  {topic.name}
-                </option>
-              ))}
+              {topics.map(
+                (topic) => (
+                  <option
+                    key={
+                      topic.id
+                    }
+                    value={
+                      topic.id
+                    }
+                  >
+                    {topic.name}
+                  </option>
+                )
+              )}
             </select>
           )}
 
           <div
             className="px-4 py-2.5 rounded-lg text-sm"
             style={{
-              backgroundColor: colors.blue,
-              color: colors.primary,
-              border: `1px solid ${colors.lightGray}`,
+              backgroundColor:
+                colors.blue,
+              color:
+                colors.primary,
+              border:
+                `1px solid ${colors.lightGray}`,
             }}
           >
             Выберите страницы и элементы,
@@ -2439,28 +2694,36 @@ function EventModal({
           <div
             className="flex items-center gap-2 px-3 py-2.5 rounded-lg bg-white"
             style={{
-              border: `1px solid ${colors.lightGray}`,
+              border:
+                `1px solid ${colors.lightGray}`,
             }}
           >
             <Search
               size={18}
               style={{
-                color: colors.secondaryText,
+                color:
+                  colors.secondaryText,
               }}
             />
 
             <input
               type="text"
-              value={elementSearch}
-              onChange={(event) =>
+              value={
+                elementSearch
+              }
+              onChange={(
+                event
+              ) =>
                 setElementSearch(
-                  event.target.value
+                  event.target
+                    .value
                 )
               }
               placeholder="Поиск страницы или элемента..."
               className="flex-1 outline-none border-none bg-transparent text-sm"
               style={{
-                color: colors.black,
+                color:
+                  colors.black,
               }}
             />
           </div>
@@ -2468,8 +2731,10 @@ function EventModal({
           <div
             className="rounded-lg p-3 overflow-auto min-h-[150px] max-h-[300px]"
             style={{
-              border: `1px solid ${colors.lightGray}`,
-              backgroundColor: colors.white,
+              border:
+                `1px solid ${colors.lightGray}`,
+              backgroundColor:
+                colors.white,
             }}
           >
             {loadingElements ? (
@@ -2483,7 +2748,8 @@ function EventModal({
                 Загрузка страниц и
                 элементов...
               </p>
-            ) : visiblePages.length === 0 ? (
+            ) : visiblePages.length ===
+              0 ? (
               <p
                 className="text-center py-5 text-sm"
                 style={{
@@ -2496,39 +2762,46 @@ function EventModal({
                   : 'Ничего не найдено'}
               </p>
             ) : (
-              visiblePages.map((item) => (
-                <div
-                  key={item.page.id}
-                  className="mb-3 last:mb-0"
-                >
+              visiblePages.map(
+                (item) => (
                   <div
-                    className="font-semibold text-sm py-1"
-                    style={{
-                      color:
-                        colors.primary,
-                    }}
+                    key={
+                      item.page.id
+                    }
+                    className="mb-3 last:mb-0"
                   >
-                    {item.page.title}
-                  </div>
-
-                  {item.elements.length ===
-                  0 ? (
                     <div
-                      className="text-sm py-1 pl-4"
+                      className="font-semibold text-sm py-1"
                       style={{
                         color:
-                          colors.secondaryText,
+                          colors.primary,
                       }}
                     >
-                      Нет элементов
+                      {
+                        item.page.title
+                      }
                     </div>
-                  ) : (
-                    renderEventElements(
-                      item.elements
-                    )
-                  )}
-                </div>
-              ))
+
+                    {item.elements
+                      .length ===
+                    0 ? (
+                      <div
+                        className="text-sm py-1 pl-4"
+                        style={{
+                          color:
+                            colors.secondaryText,
+                        }}
+                      >
+                        Нет элементов
+                      </div>
+                    ) : (
+                      renderEventElements(
+                        item.elements
+                      )
+                    )}
+                  </div>
+                )
+              )
             )}
           </div>
 
@@ -2542,7 +2815,9 @@ function EventModal({
               }}
             >
               Выбрано элементов:{' '}
-              {selectedElementIds.length}
+              {
+                selectedElementIds.length
+              }
             </div>
           )}
 
@@ -2550,8 +2825,10 @@ function EventModal({
             <div
               className="text-sm px-3 py-2 rounded-lg"
               style={{
-                color: '#b42318',
-                backgroundColor: '#fef3f2',
+                color:
+                  '#b42318',
+                backgroundColor:
+                  '#fef3f2',
                 border:
                   '1px solid #fecdca',
               }}
@@ -2563,18 +2840,21 @@ function EventModal({
           <button
             type="submit"
             disabled={
-              saving || loadingElements
+              saving ||
+              loadingElements
             }
             className="text-white font-semibold py-2 rounded-xl mt-1"
             style={{
               backgroundColor:
                 colors.primary,
               opacity:
-                saving || loadingElements
+                saving ||
+                loadingElements
                   ? 0.6
                   : 1,
               cursor:
-                saving || loadingElements
+                saving ||
+                loadingElements
                   ? 'not-allowed'
                   : 'pointer',
             }}
@@ -2595,39 +2875,77 @@ function EventModal({
 // EVENT ELEMENTS HELPERS
 // ============================================================
 
-function buildEventElementTree(list) {
+function buildEventElementTree(
+  list
+) {
   const source = list || [];
 
-  const hasNestedChildren = source.some(
-    (element) => Array.isArray(element.children) && element.children.length > 0
-  );
+  const hasNestedChildren =
+    source.some(
+      (element) =>
+        Array.isArray(
+          element.children
+        ) &&
+        element.children.length >
+          0
+    );
 
-  if (hasNestedChildren) {
-    return source.map((element) => ({
-      ...element,
-      children: buildEventElementTree(element.children || []),
-    }));
+  if (
+    hasNestedChildren
+  ) {
+    return source.map(
+      (element) => ({
+        ...element,
+        children:
+          buildEventElementTree(
+            element.children ||
+              []
+          ),
+      })
+    );
   }
 
-  const items = source.map((element) => ({
-    ...element,
-    children: [],
-  }));
+  const items = source.map(
+    (element) => ({
+      ...element,
+      children: [],
+    })
+  );
 
-  const byId = new Map(items.map((element) => [element.id, element]));
+  const byId = new Map(
+    items.map(
+      (element) => [
+        element.id,
+        element,
+      ]
+    )
+  );
+
   const roots = [];
 
-  items.forEach((element) => {
-    const parentId =
-      element.parent_element_id ?? element.parent_id ?? null;
-    const parent = parentId != null ? byId.get(parentId) : null;
+  items.forEach(
+    (element) => {
+      const parentId =
+        element.parent_element_id ??
+        element.parent_id ??
+        null;
 
-    if (parent) {
-      parent.children.push(element);
-    } else {
-      roots.push(element);
+      const parent =
+        parentId != null
+          ? byId.get(
+              parentId
+            )
+          : null;
+
+      if (parent) {
+        parent.children.push(
+          element
+        );
+      } else {
+        roots.push(element);
+      }
     }
-  });
+  );
 
   return roots;
 }
@@ -2642,10 +2960,21 @@ function TopicModal({
   topics,
   onChanged,
 }) {
-  const [name, setName] = useState('');
-  const [editingTopicId, setEditingTopicId] = useState(null);
-  const [editingName, setEditingName] = useState('');
-  const [saving, setSaving] = useState(false);
+  const [name, setName] =
+    useState('');
+
+  const [
+    editingTopicId,
+    setEditingTopicId,
+  ] = useState(null);
+
+  const [
+    editingName,
+    setEditingName,
+  ] = useState('');
+
+  const [saving, setSaving] =
+    useState(false);
 
   useEffect(() => {
     if (isOpen) {
@@ -2659,83 +2988,122 @@ function TopicModal({
     return null;
   }
 
-  const handleCreate = async (event) => {
-    event.preventDefault();
+  const handleCreate =
+    async (event) => {
+      event.preventDefault();
 
-    const trimmedName = name.trim();
+      const trimmedName =
+        name.trim();
 
-    if (!trimmedName) {
-      return;
-    }
+      if (!trimmedName) {
+        return;
+      }
 
-    try {
-      setSaving(true);
+      try {
+        setSaving(true);
 
-      await createTopic({
-        name: trimmedName,
-      });
+        await createTopic({
+          name:
+            trimmedName,
+        });
 
-      setName('');
-      await onChanged?.();
-    } catch (error) {
-      console.error('Ошибка создания темы:', error);
+        setName('');
 
-      const detail = error.response?.data?.detail;
-      alert(
-        typeof detail === 'string'
-          ? detail
-          : 'Не удалось создать тему'
-      );
-    } finally {
-      setSaving(false);
-    }
+        await onChanged?.();
+      } catch (error) {
+        console.error(
+          'Ошибка создания темы:',
+          error
+        );
+
+        const detail =
+          error.response?.data
+            ?.detail;
+
+        alert(
+          typeof detail ===
+            'string'
+            ? detail
+            : 'Не удалось создать тему'
+        );
+      } finally {
+        setSaving(false);
+      }
+    };
+
+  const handleStartEdit = (
+    topic
+  ) => {
+    setEditingTopicId(
+      topic.id
+    );
+
+    setEditingName(
+      topic.name ?? ''
+    );
   };
 
-  const handleStartEdit = (topic) => {
-    setEditingTopicId(topic.id);
-    setEditingName(topic.name ?? '');
-  };
-
-  const handleCancelEdit = () => {
-    setEditingTopicId(null);
-    setEditingName('');
-  };
-
-  const handleSaveEdit = async (topicId) => {
-    const trimmedName = editingName.trim();
-
-    if (!trimmedName) {
-      return;
-    }
-
-    try {
-      setSaving(true);
-
-      await updateTopic(topicId, {
-        name: trimmedName,
-      });
-
+  const handleCancelEdit =
+    () => {
       setEditingTopicId(null);
       setEditingName('');
-      await onChanged?.();
-    } catch (error) {
-      console.error('Ошибка редактирования темы:', error);
+    };
 
-      const detail = error.response?.data?.detail;
-      alert(
-        typeof detail === 'string'
-          ? detail
-          : 'Не удалось изменить тему'
+  const handleSaveEdit =
+    async (topicId) => {
+      const trimmedName =
+        editingName.trim();
+
+      if (!trimmedName) {
+        return;
+      }
+
+      try {
+        setSaving(true);
+
+        await updateTopic(
+          topicId,
+          {
+            name:
+              trimmedName,
+          }
+        );
+
+        setEditingTopicId(
+          null
+        );
+
+        setEditingName('');
+
+        await onChanged?.();
+      } catch (error) {
+        console.error(
+          'Ошибка редактирования темы:',
+          error
+        );
+
+        const detail =
+          error.response?.data
+            ?.detail;
+
+        alert(
+          typeof detail ===
+            'string'
+            ? detail
+            : 'Не удалось изменить тему'
+        );
+      } finally {
+        setSaving(false);
+      }
+    };
+
+  const handleDelete = async (
+    topic
+  ) => {
+    const confirmed =
+      window.confirm(
+        `Удалить тему «${topic.name}»?\n\nВсе события этой темы будут перемещены в «Без темы».`
       );
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleDelete = async (topic) => {
-    const confirmed = window.confirm(
-      `Удалить тему «${topic.name}»?\n\nВсе события этой темы будут перемещены в «Без темы».`
-    );
 
     if (!confirmed) {
       return;
@@ -2744,14 +3112,24 @@ function TopicModal({
     try {
       setSaving(true);
 
-      await deleteTopic(topic.id);
+      await deleteTopic(
+        topic.id
+      );
+
       await onChanged?.();
     } catch (error) {
-      console.error('Ошибка удаления темы:', error);
+      console.error(
+        'Ошибка удаления темы:',
+        error
+      );
 
-      const detail = error.response?.data?.detail;
+      const detail =
+        error.response?.data
+          ?.detail;
+
       alert(
-        typeof detail === 'string'
+        typeof detail ===
+          'string'
           ? detail
           : 'Не удалось удалить тему'
       );
@@ -2765,14 +3143,16 @@ function TopicModal({
       <div
         className="bg-white rounded-2xl p-6 w-[430px] max-w-full max-h-[90vh] overflow-hidden flex flex-col"
         style={{
-          border: `1px solid ${colors.lightGray}`,
+          border:
+            `1px solid ${colors.lightGray}`,
         }}
       >
         <div className="flex items-center justify-between mb-5">
           <h3
             className="text-xl font-semibold"
             style={{
-              color: colors.primary,
+              color:
+                colors.primary,
             }}
           >
             Темы
@@ -2780,7 +3160,9 @@ function TopicModal({
 
           <button
             type="button"
-            onClick={() => onClose(false)}
+            onClick={() =>
+              onClose(false)
+            }
             className="p-1 rounded hover:bg-gray-100 transition cursor-pointer"
             disabled={saving}
           >
@@ -2793,137 +3175,223 @@ function TopicModal({
             <div
               className="text-sm py-2"
               style={{
-                color: colors.secondaryText,
+                color:
+                  colors.secondaryText,
               }}
             >
               Тем пока нет
             </div>
           ) : (
             <ul className="space-y-1">
-              {topics.map((topic) => (
-                <li
-                  key={topic.id}
-                  className="flex items-center gap-2 py-1.5"
-                >
-                  {editingTopicId === topic.id ? (
-                    <>
-                      <input
-                        type="text"
-                        value={editingName}
-                        onChange={(event) =>
-                          setEditingName(event.target.value)
-                        }
-                        onKeyDown={(event) => {
-                          if (event.key === 'Enter') {
-                            event.preventDefault();
-                            handleSaveEdit(topic.id);
+              {topics.map(
+                (topic) => (
+                  <li
+                    key={
+                      topic.id
+                    }
+                    className="flex items-center gap-2 py-1.5"
+                  >
+                    {editingTopicId ===
+                    topic.id ? (
+                      <>
+                        <input
+                          type="text"
+                          value={
+                            editingName
                           }
-
-                          if (event.key === 'Escape') {
-                            handleCancelEdit();
+                          onChange={(
+                            event
+                          ) =>
+                            setEditingName(
+                              event.target
+                                .value
+                            )
                           }
-                        }}
-                        autoFocus
-                        className="border rounded-md px-2 py-1 flex-1 min-w-0"
-                        style={{
-                          borderColor: colors.lightGray,
-                          color: colors.primary,
-                        }}
-                        disabled={saving}
-                      />
+                          onKeyDown={(
+                            event
+                          ) => {
+                            if (
+                              event.key ===
+                              'Enter'
+                            ) {
+                              event.preventDefault();
 
-                      <button
-                        type="button"
-                        onClick={() => handleSaveEdit(topic.id)}
-                        className="p-1 rounded hover:text-green-600 transition cursor-pointer"
-                        title="Сохранить"
-                        disabled={saving}
-                      >
-                        ✓
-                      </button>
+                              handleSaveEdit(
+                                topic.id
+                              );
+                            }
 
-                      <button
-                        type="button"
-                        onClick={handleCancelEdit}
-                        className="p-1 rounded hover:text-red-500 transition cursor-pointer"
-                        title="Отменить"
-                        disabled={saving}
-                      >
-                        <X size={16} />
-                      </button>
-                    </>
-                  ) : (
-                    <>
-                      <span
-                        className="flex-1 min-w-0"
-                        style={{
-                          color: colors.primary,
-                        }}
-                      >
-                        • {topic.name}
-                      </span>
+                            if (
+                              event.key ===
+                              'Escape'
+                            ) {
+                              handleCancelEdit();
+                            }
+                          }}
+                          autoFocus
+                          className="border rounded-md px-2 py-1 flex-1 min-w-0"
+                          style={{
+                            borderColor:
+                              colors.lightGray,
+                            color:
+                              colors.primary,
+                          }}
+                          disabled={
+                            saving
+                          }
+                        />
 
-                      <button
-                        type="button"
-                        onClick={() => handleStartEdit(topic)}
-                        className="p-1 rounded hover:text-blue-600 transition cursor-pointer"
-                        title="Редактировать тему"
-                        disabled={saving}
-                      >
-                        <Pencil size={16} />
-                      </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            handleSaveEdit(
+                              topic.id
+                            )
+                          }
+                          className="p-1 rounded hover:text-green-600 transition cursor-pointer"
+                          title="Сохранить"
+                          disabled={
+                            saving
+                          }
+                        >
+                          ✓
+                        </button>
 
-                      <button
-                        type="button"
-                        onClick={() => handleDelete(topic)}
-                        className="p-1 rounded hover:text-red-500 transition cursor-pointer"
-                        title="Удалить тему"
-                        disabled={saving}
-                      >
-                        <Trash2 size={16} />
-                      </button>
-                    </>
-                  )}
-                </li>
-              ))}
+                        <button
+                          type="button"
+                          onClick={
+                            handleCancelEdit
+                          }
+                          className="p-1 rounded hover:text-red-500 transition cursor-pointer"
+                          title="Отменить"
+                          disabled={
+                            saving
+                          }
+                        >
+                          <X
+                            size={
+                              16
+                            }
+                          />
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <span
+                          className="flex-1 min-w-0"
+                          style={{
+                            color:
+                              colors.primary,
+                          }}
+                        >
+                          •{' '}
+                          {
+                            topic.name
+                          }
+                        </span>
+
+                        <button
+                          type="button"
+                          onClick={() =>
+                            handleStartEdit(
+                              topic
+                            )
+                          }
+                          className="p-1 rounded hover:text-blue-600 transition cursor-pointer"
+                          title="Редактировать тему"
+                          disabled={
+                            saving
+                          }
+                        >
+                          <Pencil
+                            size={
+                              16
+                            }
+                          />
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() =>
+                            handleDelete(
+                              topic
+                            )
+                          }
+                          className="p-1 rounded hover:text-red-500 transition cursor-pointer"
+                          title="Удалить тему"
+                          disabled={
+                            saving
+                          }
+                        >
+                          <Trash2
+                            size={
+                              16
+                            }
+                          />
+                        </button>
+                      </>
+                    )}
+                  </li>
+                )
+              )}
             </ul>
           )}
         </div>
 
         <form
-          onSubmit={handleCreate}
+          onSubmit={
+            handleCreate
+          }
           className="flex gap-2 border-t pt-4"
           style={{
-            borderColor: colors.lightGray,
+            borderColor:
+              colors.lightGray,
           }}
         >
           <input
             type="text"
             placeholder="Новая тема"
             value={name}
-            onChange={(event) => setName(event.target.value)}
+            onChange={(event) =>
+              setName(
+                event.target.value
+              )
+            }
             className="border rounded-md px-3 py-2 flex-1 min-w-0"
             style={{
-              borderColor: colors.lightGray,
-              color: colors.primary,
+              borderColor:
+                colors.lightGray,
+              color:
+                colors.primary,
             }}
             disabled={saving}
           />
 
           <button
             type="submit"
-            disabled={saving || !name.trim()}
+            disabled={
+              saving ||
+              !name.trim()
+            }
             className="text-white font-semibold px-4 py-2 rounded-xl transition"
             style={{
-              backgroundColor: colors.primary,
-              opacity: saving || !name.trim() ? 0.6 : 1,
+              backgroundColor:
+                colors.primary,
+              opacity:
+                saving ||
+                !name.trim()
+                  ? 0.6
+                  : 1,
               cursor:
-                saving || !name.trim()
+                saving ||
+                !name.trim()
                   ? 'not-allowed'
                   : 'pointer',
             }}
           >
-            {saving ? 'Сохранение...' : 'Добавить'}
+            {saving
+              ? 'Сохранение...'
+              : 'Добавить'}
           </button>
         </form>
       </div>
