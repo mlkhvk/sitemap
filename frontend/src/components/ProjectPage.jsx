@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 
 import AddPageModal from './AddPageModal';
+import ChecklistsSection from './Checklist';
 
 import colors from '../colors';
 
@@ -67,7 +68,7 @@ import {
 // }
 
 // Определяем, является ли событие нерегулярным.
-const isIrregularEvent = (event) => {
+export const isIrregularEvent = (event) => {
   // Если backend явно сказал, что событие регулярное
   if (event.is_regular === true) {
     return false;
@@ -94,11 +95,11 @@ const isIrregularEvent = (event) => {
 
 // Получение даты события.
 // Поддерживаются разные возможные названия поля.
-const getEventTitle = (event) => {
+export const getEventTitle = (event) => {
   return event.title ?? event.name ?? '';
 };
 
-const getEventDate = (event) => {
+export const getEventDate = (event) => {
   return (
     event.date ??
     event.start_date ??
@@ -110,7 +111,7 @@ const getEventDate = (event) => {
 };
 
 // Получение периодичности.
-const getEventRecurrence = (event) => {
+export const getEventRecurrence = (event) => {
   return (
     event.recurrence ??
     event.repeat ??
@@ -121,7 +122,7 @@ const getEventRecurrence = (event) => {
 };
 
 // Названия периодичности.
-const RECURRENCE_LABELS = {
+export const RECURRENCE_LABELS = {
   yearly: 'ежегодно',
   monthly: 'ежемесячно',
   weekly: 'еженедельно',
@@ -219,6 +220,7 @@ function ProjectPage() {
   const pagesSectionRef = useRef(null);
   const sitemapSectionRef = useRef(null);
   const eventsSectionRef = useRef(null);
+  const checklistsSectionRef = useRef(null);
 
   // ============================================================
   // EVENTS STATE
@@ -1251,7 +1253,19 @@ const matchesIrregularSearch = (event, term, topicList) => {
                   </span>
                 </li>
 
-                <li className="flex items-center gap-2 opacity-50">
+                <li
+                  className="flex items-center gap-2 cursor-pointer hover:opacity-70 transition-opacity"
+                  onClick={() =>
+                    checklistsSectionRef.current?.scrollIntoView(
+                      {
+                        behavior:
+                          'smooth',
+                        block:
+                          'start',
+                      }
+                    )
+                  }
+                >
                   <span>
                     •
                   </span>
@@ -1842,6 +1856,21 @@ const matchesIrregularSearch = (event, term, topicList) => {
                   {renderIrregularEvents()}
                 </div>
               </div>
+            </div>
+
+            {/* ================================================== */}
+            {/* CHECKLISTS */}
+            {/* ================================================== */}
+
+            <div
+              ref={checklistsSectionRef}
+              className="scroll-mt-24 mt-10 w-full max-w-[720px] mx-auto pb-16"
+            >
+              <h2 className="text-2xl font-semibold mb-6 text-center text-black">
+                Чеклисты
+              </h2>
+
+              <ChecklistsSection projectId={projectId} pages={pages} />
             </div>
           </div>
         </main>
