@@ -4,24 +4,23 @@ from datetime import datetime, date, timedelta
 from dateutil.relativedelta import relativedelta
 from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
 from app import models, schemas
 
-# ============================================================
-# PROJECTS
-# ============================================================
 
-
+# Получает список проектов
 async def get_projects(
     db: AsyncSession,
     skip: int = 0,
     limit: int = 100,
 ):
-    result = await db.execute(select(models.Project).offset(skip).limit(limit))
+    result = await db.execute(
+        select(models.Project).offset(skip).limit(limit)
+    )
     return result.scalars().all()
 
 
+# Получает проект по его идентификатору
 async def get_project(
     db: AsyncSession,
     project_id: int,
@@ -32,6 +31,7 @@ async def get_project(
     return result.scalars().first()
 
 
+# Создаёт новый проект
 async def create_project(
     db: AsyncSession,
     project: schemas.ProjectCreate,
@@ -47,6 +47,7 @@ async def create_project(
     return db_project
 
 
+# Удаляет проект по его идентификатору
 async def delete_project(
     db: AsyncSession,
     project_id: int,
@@ -65,11 +66,7 @@ async def delete_project(
     return True
 
 
-# ============================================================
-# PAGES
-# ============================================================
-
-
+# Получает все страницы проекта
 async def get_pages_by_project(
     db: AsyncSession,
     project_id: int,
@@ -80,6 +77,7 @@ async def get_pages_by_project(
     return result.scalars().all()
 
 
+# Создаёт страницу и определяет её родительскую страницу по URL
 async def create_page(
     db: AsyncSession,
     page: schemas.PageCreate,
@@ -87,12 +85,10 @@ async def create_page(
 ):
     parent_id = page.parent_page_id
 
-    # 0 означает отсутствие родительской страницы
     if parent_id == 0:
         parent_id = None
 
-    # Если parent_id не указан,
-    # пытаемся определить родителя по URL
+    # Если родитель не указан, определяем его по URL
     if parent_id is None and page.links:
         new_page_url = page.links[0].url
 
@@ -113,8 +109,9 @@ async def create_page(
         max_len = 0
 
         for page_obj, link_obj in all_pages:
-            if len(link_obj.url) < len(new_page_url) and new_page_url.startswith(
-                link_obj.url + "/"
+            if (
+                len(link_obj.url) < len(new_page_url)
+                and new_page_url.startswith(link_obj.url + "/")
             ):
                 if len(link_obj.url) > max_len:
                     max_len = len(link_obj.url)
@@ -146,12 +143,15 @@ async def create_page(
     return db_page
 
 
+# Обновляет страницу и её ссылки
 async def update_page(
     db: AsyncSession,
     page_id: int,
     page_update: schemas.PageCreate,
 ):
-    result = await db.execute(select(models.Page).filter(models.Page.id == page_id))
+    result = await db.execute(
+        select(models.Page).filter(models.Page.id == page_id)
+    )
     db_page = result.scalars().first()
 
     if not db_page:
@@ -165,14 +165,12 @@ async def update_page(
     db_page.title = page_update.title
     db_page.parent_page_id = parent_id
 
-    # Удаляем старые ссылки
     await db.execute(
         delete(models.PageLink)
         .filter(models.PageLink.page_id == page_id)
         .execution_options(synchronize_session=False)
     )
 
-    # Добавляем новые ссылки
     for link in page_update.links:
         db_link = models.PageLink(
             page_id=page_id,
@@ -187,8 +185,14 @@ async def update_page(
     return db_page
 
 
-async def delete_page(db: AsyncSession, page_id: int):
-    result = await db.execute(select(models.Page).filter(models.Page.id == page_id))
+# Удаляет страницу по её идентификатору
+async def delete_page(
+    db: AsyncSession,
+    page_id: int,
+):
+    result = await db.execute(
+        select(models.Page).filter(models.Page.id == page_id)
+    )
     page = result.scalars().first()
 
     if not page:
@@ -200,11 +204,7 @@ async def delete_page(db: AsyncSession, page_id: int):
     return True
 
 
-# ============================================================
-# ELEMENTS
-# ============================================================
-
-
+# Получает все элементы страницы
 async def get_elements_by_page(
     db: AsyncSession,
     page_id: int,
@@ -215,6 +215,7 @@ async def get_elements_by_page(
     return result.scalars().all()
 
 
+# Создаёт новый элемент страницы
 async def create_element(
     db: AsyncSession,
     element: schemas.ElementCreate,
@@ -234,7 +235,11 @@ async def create_element(
     return db_element
 
 
-async def delete_element(db: AsyncSession, element_id: int):
+# Удаляет элемент по его идентификатору
+async def delete_element(
+    db: AsyncSession,
+    element_id: int,
+):
     result = await db.execute(
         select(models.Element).filter(models.Element.id == element_id)
     )
@@ -249,11 +254,7 @@ async def delete_element(db: AsyncSession, element_id: int):
     return True
 
 
-# ============================================================
-# EVENTS
-# ============================================================
-
-
+# Получает события проекта с возможностью фильтрации по типу
 async def get_events(
     db: AsyncSession,
     project_id: int,
@@ -270,6 +271,7 @@ async def get_events(
     return result.scalars().all()
 
 
+# Создаёт событие и связывает его с элементами
 async def create_event(
     db: AsyncSession,
     event: schemas.EventCreate,
@@ -316,7 +318,10 @@ async def create_event(
     for element_id in element_ids:
         result = await db.execute(
             select(models.Element)
-            .join(models.Page, models.Page.id == models.Element.page_id)
+            .join(
+                models.Page,
+                models.Page.id == models.Element.page_id,
+            )
             .filter(
                 models.Element.id == element_id,
                 models.Page.project_id == event.project_id,
@@ -345,6 +350,7 @@ async def create_event(
     return db_event
 
 
+# Обновляет событие и его связи с элементами
 async def update_event(
     db: AsyncSession,
     event_id: int,
@@ -364,19 +370,19 @@ async def update_event(
 
     db_event.periodicity = (
         event.periodicity
-        if event.event_type == 'regular'
+        if event.event_type == "regular"
         else None
     )
 
     db_event.start_date = (
         event.start_date
-        if event.event_type == 'regular'
+        if event.event_type == "regular"
         else None
     )
 
     db_event.topic_id = (
         event.topic_id
-        if event.event_type == 'irregular'
+        if event.event_type == "irregular"
         else None
     )
 
@@ -391,22 +397,24 @@ async def update_event(
 
         if not topic:
             await db.rollback()
+
             raise ValueError(
                 f"Topic {db_event.topic_id} does not belong to project {db_event.project_id}"
             )
 
-    # Удаляем старые привязки
     await db.execute(
         delete(models.ElementEvent).where(
             models.ElementEvent.event_id == event_id
         )
     )
 
-    # Создаём новые
     for element_id in element_ids:
         element_result = await db.execute(
             select(models.Element)
-            .join(models.Page, models.Page.id == models.Element.page_id)
+            .join(
+                models.Page,
+                models.Page.id == models.Element.page_id,
+            )
             .filter(
                 models.Element.id == element_id,
                 models.Page.project_id == db_event.project_id,
@@ -417,8 +425,9 @@ async def update_event(
 
         if not element:
             await db.rollback()
+
             raise ValueError(
-                f'Element {element_id} not found'
+                f"Element {element_id} not found"
             )
 
         db.add(
@@ -433,11 +442,12 @@ async def update_event(
 
     return db_event
 
+
+# Удаляет событие и связанные с ним записи
 async def delete_event(
     db: AsyncSession,
     event_id: int,
 ):
-    # Проверяем, существует ли событие
     result = await db.execute(
         select(models.Event).filter(
             models.Event.id == event_id
@@ -449,43 +459,29 @@ async def delete_event(
     if not event:
         return False
 
-    # Удаляем задачи события
     await db.execute(
-        delete(models.EventTask)
-        .where(
+        delete(models.EventTask).where(
             models.EventTask.event_id == event_id
         )
     )
 
-    # Удаляем связи события с элементами
     await db.execute(
-        delete(models.ElementEvent)
-        .where(
+        delete(models.ElementEvent).where(
             models.ElementEvent.event_id == event_id
         )
     )
 
-    # Удаляем само событие
     await db.delete(event)
-
     await db.commit()
 
     return True
 
 
-# ============================================================
-# EVENT ↔ ELEMENT
-# ============================================================
-
-
+# Получает события, привязанные к элементу
 async def get_events_by_element(
     db: AsyncSession,
     element_id: int,
 ):
-    """
-    Возвращает события, привязанные к элементу.
-    """
-
     result = await db.execute(
         select(models.Event)
         .join(
@@ -496,7 +492,12 @@ async def get_events_by_element(
     )
     return result.scalars().all()
 
-async def get_event_elements(db: AsyncSession, event_id: int):
+
+# Получает элементы, привязанные к событию
+async def get_event_elements(
+    db: AsyncSession,
+    event_id: int,
+):
     result = await db.execute(
         select(models.ElementEvent).filter(
             models.ElementEvent.event_id == event_id
@@ -504,43 +505,46 @@ async def get_event_elements(db: AsyncSession, event_id: int):
     )
     return result.scalars().all()
 
+
+# Получает связи событий с конкретным элементом
 async def get_event_elements_by_element(
     db: AsyncSession,
     element_id: int,
 ):
-    """
-    Возвращает записи промежуточной таблицы
-    ElementEvent для конкретного элемента.
-    """
-
     result = await db.execute(
-        select(models.ElementEvent).filter(models.ElementEvent.element_id == element_id)
+        select(models.ElementEvent).filter(
+            models.ElementEvent.element_id == element_id
+        )
     )
     return result.scalars().all()
 
 
+# Привязывает событие к элементу
 async def attach_event_to_element(
     db: AsyncSession,
     element_id: int,
     event_id: int,
 ):
-    # Проверяем существование элемента
     result = await db.execute(
-        select(models.Element).filter(models.Element.id == element_id)
+        select(models.Element).filter(
+            models.Element.id == element_id
+        )
     )
     element = result.scalars().first()
 
     if not element:
         return False
 
-    # Проверяем существование события
-    result = await db.execute(select(models.Event).filter(models.Event.id == event_id))
+    result = await db.execute(
+        select(models.Event).filter(
+            models.Event.id == event_id
+        )
+    )
     event = result.scalars().first()
 
     if not event:
         return False
 
-    # Проверяем, нет ли уже такой связи
     result = await db.execute(
         select(models.ElementEvent).filter(
             models.ElementEvent.element_id == element_id,
@@ -563,16 +567,12 @@ async def attach_event_to_element(
     return True
 
 
+# Удаляет связь события с элементом
 async def detach_event_from_element(
     db: AsyncSession,
     element_id: int,
     event_id: int,
 ):
-    """
-    Удаляет связь конкретного события
-    с конкретным элементом.
-    """
-
     result = await db.execute(
         select(models.ElementEvent).filter(
             models.ElementEvent.element_id == element_id,
@@ -590,15 +590,7 @@ async def detach_event_from_element(
     return True
 
 
-# ============================================================
-# TOPICS
-# ============================================================
-
-
-# ============================================================
-# TOPICS
-# ============================================================
-
+# Получает все темы проекта
 async def get_topics(
     db: AsyncSession,
     project_id: int,
@@ -612,6 +604,7 @@ async def get_topics(
     return result.scalars().all()
 
 
+# Создаёт новую тему
 async def create_topic(
     db: AsyncSession,
     topic: schemas.TopicCreate,
@@ -641,6 +634,7 @@ async def create_topic(
     return db_topic
 
 
+# Обновляет название темы
 async def update_topic(
     db: AsyncSession,
     topic_id: int,
@@ -672,6 +666,7 @@ async def update_topic(
     return db_topic
 
 
+# Удаляет тему и отвязывает её от событий
 async def delete_topic(
     db: AsyncSession,
     topic_id: int,
@@ -687,14 +682,6 @@ async def delete_topic(
     if not db_topic:
         return False
 
-    # ========================================================
-    # ВАЖНО:
-    # Все события этой темы переводим в "Без темы".
-    #
-    # Мы НЕ удаляем события.
-    # Просто убираем topic_id.
-    # ========================================================
-
     events_result = await db.execute(
         select(models.Event).filter(
             models.Event.topic_id == topic_id
@@ -706,22 +693,13 @@ async def delete_topic(
     for event in events:
         event.topic_id = None
 
-    # ========================================================
-    # Теперь удаляем саму тему
-    # ========================================================
-
     await db.delete(db_topic)
-
     await db.commit()
 
     return True
 
 
-# ============================================================
-# TASKS
-# ============================================================
-
-
+# Получает задачи событий с возможностью фильтрации по статусу
 async def get_event_tasks(
     db: AsyncSession,
     completed: Optional[bool] = None,
@@ -729,12 +707,15 @@ async def get_event_tasks(
     query = select(models.EventTask)
 
     if completed is not None:
-        query = query.filter(models.EventTask.completed == completed)
+        query = query.filter(
+            models.EventTask.completed == completed
+        )
 
     result = await db.execute(query)
     return result.scalars().all()
 
 
+# Создаёт задачу для события
 async def create_event_task(
     db: AsyncSession,
     task: schemas.EventTaskCreate,
@@ -751,13 +732,16 @@ async def create_event_task(
     return db_task
 
 
+# Обновляет статус задачи
 async def update_event_task(
     db: AsyncSession,
     task_id: int,
     task_update: schemas.EventTaskUpdate,
 ):
     result = await db.execute(
-        select(models.EventTask).filter(models.EventTask.id == task_id)
+        select(models.EventTask).filter(
+            models.EventTask.id == task_id
+        )
     )
     db_task = result.scalars().first()
 
@@ -777,12 +761,15 @@ async def update_event_task(
     return db_task
 
 
+# Удаляет задачу события
 async def delete_event_task(
     db: AsyncSession,
     task_id: int,
 ):
     result = await db.execute(
-        select(models.EventTask).filter(models.EventTask.id == task_id)
+        select(models.EventTask).filter(
+            models.EventTask.id == task_id
+        )
     )
     db_task = result.scalars().first()
 
@@ -795,22 +782,12 @@ async def delete_event_task(
     return True
 
 
-# ============================================================
-# DATE CALCULATION
-# ============================================================
-# Чистая функция, к БД не обращается — остаётся синхронной.
-
-
+# Вычисляет ближайшую дату выполнения регулярного события
 def calculate_next_due_date(
     start_date: date,
     periodicity: str,
     reference_date: date = None,
 ):
-    """
-    Вычисляет ближайшую дату выполнения,
-    которая >= reference_date.
-    """
-
     if reference_date is None:
         reference_date = date.today()
 
@@ -818,20 +795,22 @@ def calculate_next_due_date(
         return start_date
 
     if periodicity == "ежегодно":
-
         try:
-            next_date = start_date.replace(year=reference_date.year)
+            next_date = start_date.replace(
+                year=reference_date.year
+            )
         except ValueError:
-            # Например, 29 февраля
+            # Для 29 февраля используем 28 февраля
             next_date = start_date.replace(
                 year=reference_date.year,
                 day=28,
             )
 
         if next_date < reference_date:
-
             try:
-                next_date = start_date.replace(year=reference_date.year + 1)
+                next_date = start_date.replace(
+                    year=reference_date.year + 1
+                )
             except ValueError:
                 next_date = start_date.replace(
                     year=reference_date.year + 1,
@@ -841,7 +820,6 @@ def calculate_next_due_date(
         return next_date
 
     elif periodicity == "ежемесячно":
-
         next_date = start_date + relativedelta(
             months=(
                 (reference_date.year - start_date.year) * 12
@@ -856,12 +834,12 @@ def calculate_next_due_date(
         return next_date
 
     elif periodicity == "еженедельно":
-
         days_diff = (reference_date - start_date).days
-
         weeks_passed = days_diff // 7
 
-        next_date = start_date + timedelta(weeks=weeks_passed)
+        next_date = start_date + timedelta(
+            weeks=weeks_passed
+        )
 
         if next_date < reference_date:
             next_date += timedelta(weeks=1)
@@ -869,14 +847,17 @@ def calculate_next_due_date(
         return next_date
 
     elif periodicity == "раз в квартал":
-
-        months_diff = (reference_date.year - start_date.year) * 12 + (
-            reference_date.month - start_date.month
+        months_diff = (
+            (reference_date.year - start_date.year) * 12
+            + reference_date.month
+            - start_date.month
         )
 
         quarters_passed = months_diff // 3
 
-        next_date = start_date + relativedelta(months=quarters_passed * 3)
+        next_date = start_date + relativedelta(
+            months=quarters_passed * 3
+        )
 
         if next_date < reference_date:
             next_date += relativedelta(months=3)
@@ -886,11 +867,7 @@ def calculate_next_due_date(
     return None
 
 
-# ============================================================
-# PAGE WITH ELEMENTS
-# ============================================================
-
-
+# Создаёт страницу вместе с её элементами и ссылками
 async def create_page_with_elements(
     db: AsyncSession,
     page_data: dict,
@@ -905,7 +882,6 @@ async def create_page_with_elements(
     db.add(db_page)
     await db.flush()
 
-    # Создаём ссылки
     for link in page_data.get(
         "links",
         [],
@@ -917,13 +893,11 @@ async def create_page_with_elements(
 
         db.add(db_link)
 
-    # Рекурсивное создание элементов
     async def create_elements(
         elements,
         parent_id=None,
     ):
         for element_data in elements:
-
             db_element = models.Element(
                 page_id=db_page.id,
                 parent_element_id=parent_id,
@@ -956,21 +930,16 @@ async def create_page_with_elements(
     return db_page
 
 
-# ============================================================
-# CURRENT TASK
-# ============================================================
-
-
+# Получает текущую задачу события или создаёт её
 async def get_or_create_current_task(
     db: AsyncSession,
     event_id: int,
 ):
-    """
-    Возвращает задание для текущего периода
-    или создаёт его.
-    """
-
-    result = await db.execute(select(models.Event).filter(models.Event.id == event_id))
+    result = await db.execute(
+        select(models.Event).filter(
+            models.Event.id == event_id
+        )
+    )
     event = result.scalars().first()
 
     if not event or event.event_type != "regular":
@@ -993,7 +962,6 @@ async def get_or_create_current_task(
     task = result.scalars().first()
 
     if not task:
-
         task = models.EventTask(
             event_id=event_id,
             due_date=next_due_date,

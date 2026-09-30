@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { FileText } from 'lucide-react';
 import colors from '../colors';
 import { getElements, getEventElements } from '../services/api';
+
 import {
   isIrregularEvent,
   getEventTitle,
@@ -16,413 +17,1308 @@ import pdfMake from 'pdfmake/build/pdfmake';
 import * as pdfFontsModule from 'pdfmake/build/vfs_fonts';
 
 const pdfFonts = pdfFontsModule.default || pdfFontsModule;
+
 pdfMake.vfs = pdfFonts.pdfMake?.vfs || pdfFonts.vfs;
 
-// ============================================================
-// TREE HELPERS
-// ============================================================
-
+// Разворачивает дерево страниц в плоский список
 const flattenPageTree = (tree) => {
   const result = [];
 
+  // Рекурсивно обходит дерево страниц
   const walk = (nodes) => {
     nodes.forEach((node) => {
       result.push(node);
-      if (node.children?.length) walk(node.children);
+
+      if (node.children?.length) {
+        walk(node.children);
+      }
     });
   };
 
-  walk(tree);
+  walk(tree || []);
+
   return result;
 };
 
+// Строит дерево элементов страницы
 const buildElementTree = (elements) => {
   const map = {};
 
-  elements.forEach((el) => {
-    map[el.id] = { ...el, children: [] };
+  (elements || []).forEach((element) => {
+    map[element.id] = {
+      ...element,
+      children: [],
+    };
   });
 
   const tree = [];
 
-  elements.forEach((el) => {
-    if (el.parent_element_id && map[el.parent_element_id]) {
-      map[el.parent_element_id].children.push(map[el.id]);
+  (elements || []).forEach((element) => {
+    if (
+      element.parent_element_id &&
+      map[element.parent_element_id]
+    ) {
+      map[element.parent_element_id].children.push(
+        map[element.id]
+      );
     } else {
-      tree.push(map[el.id]);
+      tree.push(map[element.id]);
     }
   });
 
   return tree;
 };
 
-const sortByOrderOrName = (items) =>
+// Сортирует элементы по порядку или названию
+const sortByOrderOrName = (items = []) =>
   [...items].sort((a, b) => {
-    if (a.sort_order !== undefined && b.sort_order !== undefined) {
+    if (
+      a.sort_order !== undefined &&
+      b.sort_order !== undefined
+    ) {
       return a.sort_order - b.sort_order;
     }
-    return (a.name || a.title || '').localeCompare(b.name || b.title || '');
+
+    return (
+      (a.name || a.title || '').localeCompare(
+        b.name || b.title || '',
+        'ru'
+      )
+    );
   });
 
-const buildSitemapList = (nodes) => {
-  const sorted = sortByOrderOrName(nodes);
+// Формирует список страниц для PDF
+const buildSitemapList = (nodes = []) => {
+  return sortByOrderOrName(nodes).map((node) => {
+    const item = {
+      text: node.title || node.name || '',
+    };
 
-  return sorted.map((node) => {
-    const item = { text: node.title };
-    if (node.children?.length) item.ul = buildSitemapList(node.children);
+    if (node.children?.length) {
+      item.ul = buildSitemapList(node.children);
+    }
+
     return item;
   });
 };
 
-const buildElementsList = (nodes) => {
-  const sorted = sortByOrderOrName(nodes);
+// Формирует список элементов для PDF
+const buildElementsList = (nodes = []) => {
+  return sortByOrderOrName(nodes).map((node) => {
+    const item = {
+      text: node.name || node.title || '',
+      bold: node.children?.length > 0,
+    };
 
-  return sorted.map((node) => {
-    const item = { text: node.name, bold: node.children?.length > 0 };
-    if (node.children?.length) item.ul = buildElementsList(node.children);
+    if (node.children?.length) {
+      item.ul = buildElementsList(node.children);
+    }
+
     return item;
   });
 };
 
-// ============================================================
-// COMPONENT
-// ============================================================
+const checkbox = {
+  canvas: [
+    {
+      type: 'rect',
+      x: 0,
+      y: 1,
+      w: 10,
+      h: 10,
+      lineWidth: 1,
+    },
+    {
+      type: 'polyline',
+      closePath: false,
+      points: [
+        { x: 2, y: 6 },
+        { x: 4.5, y: 9 },
+        { x: 9, y: 3 },
+      ],
+      lineWidth: 1.2,
+    },
+  ],
+  width: 12,
+  height: 12,
+};
 
-function PdfGenerationSection({ project, pages, pageTree, events, topics }) {
+// Получает ссылки страницы в виде строки
+const getPageUrl = (page) => {
+  if (!page?.links?.length) {
+    return '';
+  }
+
+  return page.links
+    .map((link) => link.url)
+    .filter(Boolean)
+    .join(', ');
+};
+
+// Получает описание события
+const getEventDescription = (event) => {
+  return (
+    event?.description ||
+    event?.comment ||
+    event?.details ||
+    event?.text ||
+    event?.note ||
+    ''
+  );
+};
+
+// Получает название темы события
+const getTopicName = (event, topics) => {
+  return (
+    event?.topic?.name ||
+    topics?.find(
+      (topic) => topic.id === event?.topic_id
+    )?.name ||
+    'Без темы'
+  );
+};
+
+// Получает название события для сортировки
+const getEventSortName = (event) =>
+  getEventTitle(event) || event?.name || '';
+
+// Получает описание регулярного события
+const getRegularDescription = (event) => {
+  return (
+    event?.description ||
+    event?.comment ||
+    event?.details ||
+    event?.text ||
+    ''
+  );
+};
+
+// Убирает повторяющиеся значения из массива
+const unique = (items) => [...new Set(items)];
+
+// Группирует события по темам
+const groupByTopic = (events, topics) => {
+  const groups = {};
+
+  events.forEach((event) => {
+    const topicName = getTopicName(
+      event,
+      topics
+    );
+
+    if (!groups[topicName]) {
+      groups[topicName] = [];
+    }
+
+    groups[topicName].push(event);
+  });
+
+  return Object.entries(groups).sort((a, b) =>
+    a[0].localeCompare(b[0], 'ru')
+  );
+};
+
+// Управляет генерацией PDF-отчёта
+function PdfGenerationSection({
+  project,
+  pages,
+  pageTree,
+  events,
+  topics,
+}) {
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState('');
 
-  // ------------------------------------------------------------
-  // Сбор элементов каждой страницы + событий, привязанных к ним
-  // ------------------------------------------------------------
-
+  // Собирает элементы страниц и связанные с ними события
   const collectPageEventData = async () => {
     const elementsByPageId = {};
     const eventsByElementId = {};
     const pagesByEventId = {};
 
     await Promise.all(
-      pages.map(async (page) => {
+      (pages || []).map(async (page) => {
         try {
-          const res = await getElements(page.id);
-          elementsByPageId[page.id] = res.data || [];
-        } catch (err) {
-          console.error(`Ошибка загрузки элементов страницы ${page.id}:`, err);
+          const response = await getElements(page.id);
+
+          elementsByPageId[page.id] =
+            response.data || [];
+        } catch {
           elementsByPageId[page.id] = [];
         }
       })
     );
 
-    const allElements = Object.entries(elementsByPageId).flatMap(
-      ([pageId, elements]) =>
-        elements.map((el) => ({ ...el, _pageId: Number(pageId) }))
+    const allElements = Object.entries(
+      elementsByPageId
+    ).flatMap(([pageId, elements]) =>
+      elements.map((element) => ({
+        ...element,
+        _pageId: Number(pageId),
+      }))
     );
 
     await Promise.all(
       allElements.map(async (element) => {
         try {
-          const res = await getEventElements(element.id);
-          const elementEvents = res.data || [];
-          eventsByElementId[element.id] = elementEvents;
+          const response = await getEventElements(
+            element.id
+          );
 
-          const page = pages.find((p) => p.id === element._pageId);
+          const elementEvents =
+            response.data || [];
+
+          eventsByElementId[element.id] =
+            elementEvents;
+
+          const page = pages.find(
+            (item) => item.id === element._pageId
+          );
 
           elementEvents.forEach((event) => {
-            if (!pagesByEventId[event.id]) pagesByEventId[event.id] = [];
-            pagesByEventId[event.id].push({ page, element });
+            if (!pagesByEventId[event.id]) {
+              pagesByEventId[event.id] = [];
+            }
+
+            pagesByEventId[event.id].push({
+              page,
+              element,
+            });
           });
-        } catch (err) {
-          console.error(`Ошибка загрузки событий элемента ${element.id}:`, err);
+        } catch {
           eventsByElementId[element.id] = [];
         }
       })
     );
 
-    return { elementsByPageId, eventsByElementId, pagesByEventId };
+    return {
+      elementsByPageId,
+      eventsByElementId,
+      pagesByEventId,
+    };
   };
 
-  // ------------------------------------------------------------
-  // Группировка событий (как в разделе "События" на ProjectPage)
-  // ------------------------------------------------------------
-
+  // Формирует группы регулярных событий
   const getRegularGroups = () => {
     const groups = {};
 
-    events
+    (events || [])
       .filter((event) => !isIrregularEvent(event))
       .forEach((event) => {
         const date = getEventDate(event);
-        const recurrence = getEventRecurrence(event);
-        if (!date || !recurrence) return;
+        const recurrence =
+          getEventRecurrence(event);
+
+        if (!date || !recurrence) {
+          return;
+        }
 
         const key = `${date}_${recurrence}`;
-        if (!groups[key]) groups[key] = { date, recurrence, items: [] };
+
+        if (!groups[key]) {
+          groups[key] = {
+            date,
+            recurrence,
+            items: [],
+          };
+        }
+
         groups[key].items.push(event);
       });
 
-    return Object.values(groups).sort((a, b) => compareMonthDay(a.date, b.date));
+    return Object.values(groups).sort((a, b) =>
+      compareMonthDay(a.date, b.date)
+    );
   };
 
-  const getTopicName = (event) =>
-    event.topic?.name ??
-    topics.find((topic) => topic.id === event.topic_id)?.name ??
-    'Без темы';
+  // Формирует заголовок страницы с её ссылкой
+  const createPageTitle = (page, index) => {
+    const url = getPageUrl(page);
 
-  // ------------------------------------------------------------
-  // Раздел "Страницы сайта" (детально)
-  // ------------------------------------------------------------
+    return {
+      stack: [
+        {
+          text: `${index}. ${page.title || ''}`,
+          style: 'pageTitle',
+        },
 
-  const buildPagesDetailSection = (flatPages, elementsByPageId, eventsByElementId) => {
-    const content = [];
+        ...(url
+          ? [
+              {
+                text: `(${url})`,
+                style: 'pageUrl',
+              },
+            ]
+          : []),
+      ],
+    };
+  };
 
-    flatPages.forEach((page, index) => {
-      const elements = elementsByPageId[page.id] || [];
-      const elementTree = buildElementTree(elements);
+  // Формирует список страниц сайта
+  const buildPagesListSection = (flatPages) => {
+    return [
+      {
+        text: 'Страницы сайта',
+        style: 'mainHeading',
+        pageBreak: 'before',
+      },
 
-      const regularLines = [];
-      const irregularLines = [];
+      {
+        ol: flatPages.map(
+          (page) => page.title || ''
+        ),
+        style: 'pageList',
+      },
+    ];
+  };
 
-      elements.forEach((element) => {
-        const elementEvents = eventsByElementId[element.id] || [];
+  // Формирует подробную информацию о странице
+  const buildPageDetail = (
+    page,
+    index,
+    elementsByPageId,
+    eventsByElementId
+  ) => {
+    const elements =
+      elementsByPageId[page.id] || [];
 
-        elementEvents.forEach((event) => {
-          const title = getEventTitle(event);
+    const elementTree =
+      buildElementTree(elements);
 
-          if (isIrregularEvent(event)) {
-            irregularLines.push(`${element.name} - ${title}`);
-          } else {
-            const date = getEventDate(event);
-            const recurrence = getEventRecurrence(event);
-            const recurrenceLabel = RECURRENCE_LABELS[recurrence] || recurrence || '';
-            const dateLabel = date ? formatMonthDay(date) : '';
+    const regularByElement = {};
+    const irregularByElement = {};
 
-            regularLines.push(
-              `${element.name} - ${title} - ${recurrenceLabel}${dateLabel ? ` ${dateLabel}` : ''}`
-            );
+    elements.forEach((element) => {
+      const elementEvents =
+        eventsByElementId[element.id] || [];
+
+      elementEvents.forEach((event) => {
+        if (isIrregularEvent(event)) {
+          if (!irregularByElement[element.id]) {
+            irregularByElement[element.id] = [];
           }
+
+          irregularByElement[element.id].push({
+            element,
+            event,
+          });
+        } else {
+          if (!regularByElement[element.id]) {
+            regularByElement[element.id] = [];
+          }
+
+          regularByElement[element.id].push({
+            element,
+            event,
+          });
+        }
+      });
+    });
+
+    const regularItems = [];
+    const irregularItems = [];
+
+    Object.values(regularByElement)
+      .flat()
+      .forEach(({ element, event }) => {
+        const date = getEventDate(event);
+        const recurrence =
+          getEventRecurrence(event);
+
+        const recurrenceLabel =
+          RECURRENCE_LABELS[recurrence] ||
+          recurrence ||
+          '';
+
+        const dateLabel = date
+          ? formatMonthDay(date)
+          : '';
+
+        regularItems.push({
+          element: element.name,
+          event: getEventTitle(event),
+          description:
+            getRegularDescription(event),
+          label:
+            recurrenceLabel && dateLabel
+              ? `${recurrenceLabel} ${dateLabel}`
+              : recurrenceLabel || dateLabel,
         });
+      });
+
+    Object.values(irregularByElement)
+      .flat()
+      .forEach(({ element, event }) => {
+        irregularItems.push({
+          element: element.name,
+          event: getEventTitle(event),
+          description:
+            getEventDescription(event),
+        });
+      });
+
+    const content = [
+      {
+        stack: [
+          {
+            text: `${index}. ${
+              page.title || ''
+            }`,
+            style: 'detailHeading',
+          },
+
+          ...(getPageUrl(page)
+            ? [
+                {
+                  text: `(${getPageUrl(page)})`,
+                  style: 'detailUrl',
+                },
+              ]
+            : []),
+        ],
+
+        pageBreak: 'before',
+      },
+    ];
+
+    if (page.links?.length) {
+      content.push({
+        text: 'Ссылки:',
+        style: 'boldLabel',
+        margin: [0, 0, 0, 2],
       });
 
       content.push({
-        text: `${index + 1}. ${page.title}`,
-        style: 'pageHeader',
-        pageBreak: 'before',
+        ul: page.links
+          .map((link) => link.url)
+          .filter(Boolean),
+        style: 'linkList',
+        margin: [18, 0, 0, 12],
+      });
+    }
+
+    if (elementTree.length) {
+      content.push({
+        text: 'Содержание:',
+        style: 'sectionLabel',
       });
 
-      if (page.links?.length) {
+      content.push({
+        ul: buildElementsList(elementTree),
+        style: 'elementList',
+        margin: [18, 0, 0, 14],
+      });
+    }
+
+    content.push({
+      text: 'Данные, которые могут обновляться:',
+      style: 'sectionLabel',
+      margin: [0, 8, 0, 8],
+    });
+
+    content.push({
+      text: 'Регулярно:',
+      style: 'boldLabel',
+      margin: [0, 0, 0, 5],
+    });
+
+    if (regularItems.length) {
+      regularItems.forEach((item) => {
         content.push({
           text: [
-            { text: 'Ссылки: ', bold: true },
-            page.links.map((link) => link.url).join(', '),
+            {
+              text: `${item.element} – `,
+              bold: false,
+            },
+            {
+              text: item.event,
+            },
+            ...(item.label
+              ? [
+                  {
+                    text: ` – ${item.label}`,
+                  },
+                ]
+              : []),
           ],
-          margin: [0, 0, 0, 8],
+          style: 'bulletText',
+          margin: [18, 0, 0, 4],
         });
-      }
+      });
+    } else {
+      content.push({
+        text: 'Нет регулярных событий',
+        style: 'emptyText',
+        margin: [18, 0, 0, 8],
+      });
+    }
 
-      if (elementTree.length) {
-        content.push({ text: 'Содержание:', style: 'subHeader' });
-        content.push({ ul: buildElementsList(elementTree), margin: [10, 0, 0, 10] });
-      }
-
-      content.push({ text: 'Данные, которые могут обновляться:', style: 'subHeader' });
-
-      content.push({ text: 'Регулярно:', bold: true, margin: [10, 4, 0, 2] });
-      content.push(
-        regularLines.length
-          ? { ul: regularLines, margin: [20, 0, 0, 8] }
-          : { text: 'Нет регулярных событий', italics: true, color: '#888', margin: [20, 0, 0, 8] }
-      );
-
-      content.push({ text: 'При наступлении событий:', bold: true, margin: [10, 4, 0, 2] });
-      content.push(
-        irregularLines.length
-          ? { ul: irregularLines, margin: [20, 0, 0, 8] }
-          : { text: 'Нет нерегулярных событий', italics: true, color: '#888', margin: [20, 0, 0, 8] }
-      );
+    content.push({
+      text: 'При наступлении событий:',
+      style: 'boldLabel',
+      margin: [0, 10, 0, 5],
     });
+
+    if (irregularItems.length) {
+      irregularItems.forEach((item) => {
+        content.push({
+          stack: [
+            {
+              text: [
+                {
+                  text: `${item.element} – `,
+                },
+                {
+                  text: item.event,
+                },
+              ],
+            },
+
+            ...(item.description
+              ? [
+                  {
+                    text: `События: ${item.description}`,
+                    style:
+                      'eventDescriptionInline',
+                  },
+                ]
+              : []),
+          ],
+
+          style: 'bulletText',
+          margin: [18, 0, 0, 6],
+        });
+      });
+    } else {
+      content.push({
+        text: 'Нет нерегулярных событий',
+        style: 'emptyText',
+        margin: [18, 0, 0, 8],
+      });
+    }
 
     return content;
   };
 
-  // ------------------------------------------------------------
-  // Раздел "Чеклисты событий"
-  // ------------------------------------------------------------
+  // Формирует вводную часть раздела чеклистов
+  const buildChecklistsIntro = () => {
+    return [
+      {
+        text: 'Чеклисты событий',
+        style: 'mainHeading',
+        pageBreak: 'before',
+      },
 
-  const buildChecklistsSection = (pagesByEventId) => {
-    const content = [
-      { text: 'Чеклисты событий', style: 'sectionHeader', pageBreak: 'before' },
       {
         text:
           'В этом разделе собраны чеклисты, пройдясь по которым можно ' +
           'гарантированно актуализировать всю необходимую информацию на ' +
           'сайте с минимальными трудозатратами.',
-        margin: [0, 0, 0, 12],
+        style: 'bodyText',
       },
-      { text: 'Регулярные события', style: 'subSectionHeader' },
+
       {
-        text:
-          'Чеклисты, привязанные к конкретным регулярным событиям, ' +
-          'которые можно обозначить датой.',
-        margin: [0, 0, 0, 10],
+        text: 'Раздел состоит из 2 подразделов:',
+        style: 'bodyText',
+        margin: [0, 18, 0, 6],
+      },
+
+      {
+        ol: [
+          'Регулярные события',
+          'Нерегулярные события',
+        ],
+        style: 'bodyText',
       },
     ];
+  };
 
-    const regularGroups = getRegularGroups();
+  // Формирует содержание раздела регулярных чеклистов
+  const buildRegularChecklistIndex = () => {
+    const groups = getRegularGroups();
 
-    if (regularGroups.length === 0) {
-      content.push({ text: 'Регулярных событий пока нет', italics: true, color: '#888' });
-    }
+    const list = groups.map((group) => {
+      const date = formatMonthDay(
+        group.date
+      );
 
-    regularGroups.forEach((group) => {
-      const recurrenceLabel = RECURRENCE_LABELS[group.recurrence] || group.recurrence || '';
+      const recurrence =
+        RECURRENCE_LABELS[group.recurrence] ||
+        group.recurrence ||
+        '';
 
-      content.push({
-        text: `Чеклист – ${formatMonthDay(group.date)} (${recurrenceLabel})`,
-        style: 'checklistHeader',
-      });
-
-      const pagesInGroup = {};
-
-      group.items.forEach((event) => {
-        (pagesByEventId[event.id] || []).forEach(({ page, element }) => {
-          if (!page) return;
-          if (!pagesInGroup[page.id]) pagesInGroup[page.id] = { page, lines: [] };
-          pagesInGroup[page.id].lines.push(`${element.name} - ${getEventTitle(event)}`);
-        });
-      });
-
-      const pageEntries = Object.values(pagesInGroup);
-
-      if (pageEntries.length === 0) {
-        content.push({
-          text: 'Нет элементов, привязанных к этой дате',
-          italics: true,
-          color: '#888',
-          margin: [10, 0, 0, 10],
-        });
-      } else {
-        pageEntries.forEach((entry) => {
-          content.push({ text: entry.page.title, bold: true, margin: [10, 4, 0, 2] });
-          content.push({ ul: entry.lines.map((line) => `✓ ${line}`), margin: [20, 0, 0, 8] });
-        });
-      }
+      return recurrence
+        ? `${date} – ${recurrence}`
+        : date;
     });
 
-    content.push({
-      text: 'Нерегулярные события',
-      style: 'subSectionHeader',
-      pageBreak: 'before',
-    });
-    content.push({
-      text:
-        'Чеклисты, привязанные к конкретным событиям, которые могут ' +
-        'произойти когда-угодно.',
-      margin: [0, 0, 0, 10],
-    });
+    return [
+      {
+        text: 'Регулярные события – Чеклисты',
+        style: 'mainHeading',
+        pageBreak: 'before',
+      },
 
-    const irregularEvents = events.filter((event) => isIrregularEvent(event));
+      {
+        text:
+          'Здесь содержатся чеклисты, привязанные к конкретным регулярным ' +
+          'событиям, которые можно обозначить датой. Каждая дата коротко ' +
+          'пояснена сутью обновлений.',
+        style: 'bodyText',
+      },
 
-    if (irregularEvents.length === 0) {
-      content.push({ text: 'Нерегулярных событий пока нет', italics: true, color: '#888' });
-    }
+      {
+        text:
+          'В чеклисте идёт сортировка по страницам с указанием места ' +
+          'актуализации каждой из них.',
+        style: 'bodyText',
+        margin: [0, 10, 0, 18],
+      },
 
-    irregularEvents.forEach((event) => {
-      content.push({
-        text: `Чеклист – ${getEventTitle(event)} (${getTopicName(event)})`,
-        style: 'checklistHeader',
-      });
+      {
+        text: 'Список регулярных обновлений:',
+        style: 'boldLabel',
+      },
 
-      const pagesInGroup = {};
+      {
+        ol: list,
+        style: 'boldList',
+        margin: [18, 4, 0, 0],
+      },
+    ];
+  };
 
-      (pagesByEventId[event.id] || []).forEach(({ page, element }) => {
+  // Формирует отдельный регулярный чеклист
+  const buildRegularChecklistPage = (
+    group,
+    pagesByEventId
+  ) => {
+    const pageGroups = {};
+
+    group.items.forEach((event) => {
+      (
+        pagesByEventId[event.id] || []
+      ).forEach(({ page, element }) => {
         if (!page) return;
-        if (!pagesInGroup[page.id]) pagesInGroup[page.id] = { page, lines: [] };
-        pagesInGroup[page.id].lines.push(element.name);
+
+        if (!pageGroups[page.id]) {
+          pageGroups[page.id] = {
+            page,
+            elements: [],
+          };
+        }
+
+        pageGroups[page.id].elements.push({
+          element,
+          event,
+        });
+      });
+    });
+
+    const entries = Object.values(
+      pageGroups
+    );
+
+    const recurrenceLabel =
+      RECURRENCE_LABELS[group.recurrence] ||
+      group.recurrence ||
+      '';
+
+    const content = [
+      {
+        text: `Чеклист – ${formatMonthDay(
+          group.date
+        )}`,
+        style: 'checklistHeading',
+        pageBreak: 'before',
+      },
+
+      ...(recurrenceLabel
+        ? [
+            {
+              text: `Периодичность: ${recurrenceLabel}`,
+              style: 'bodyText',
+              margin: [0, 0, 0, 12],
+            },
+          ]
+        : []),
+    ];
+
+    const descriptionParts = unique(
+      group.items
+        .map((event) =>
+          getRegularDescription(event)
+        )
+        .filter(Boolean)
+    );
+
+    if (descriptionParts.length) {
+      content.push({
+        text: descriptionParts.join(' '),
+        style: 'italicText',
+        margin: [0, 0, 0, 14],
+      });
+    }
+
+    if (!entries.length) {
+      content.push({
+        text:
+          'Нет элементов, привязанных к этой дате',
+        style: 'emptyText',
       });
 
-      const pageEntries = Object.values(pagesInGroup);
+      return content;
+    }
 
-      if (pageEntries.length === 0) {
+    entries.forEach((entry, index) => {
+      const page = entry.page;
+
+      content.push({
+        text: `${index + 1}. ${
+          page.title || ''
+        }`,
+        style: 'eventPageHeading',
+        margin: [0, 12, 0, 3],
+      });
+
+      const url = getPageUrl(page);
+
+      if (url) {
         content.push({
-          text: 'Нет элементов, привязанных к этому событию',
-          italics: true,
-          color: '#888',
-          margin: [10, 0, 0, 10],
-        });
-      } else {
-        pageEntries.forEach((entry) => {
-          content.push({ text: entry.page.title, bold: true, margin: [10, 4, 0, 2] });
-          content.push({ ul: entry.lines.map((line) => `✓ ${line}`), margin: [20, 0, 0, 8] });
+          text: `(${url})`,
+          style: 'eventPageUrl',
+          margin: [18, 0, 0, 5],
         });
       }
+
+      entry.elements.forEach(
+        ({ element, event }) => {
+          content.push({
+            columns: [
+              checkbox,
+              {
+                text: [
+                  {
+                    text:
+                      element.name || '',
+                  },
+                  {
+                    text: event
+                      ? ` – ${getEventTitle(
+                          event
+                        )}`
+                      : '',
+                  },
+                ],
+                style: 'checkItem',
+              },
+            ],
+
+            columnGap: 6,
+            margin: [18, 0, 0, 5],
+          });
+        }
+      );
     });
 
     return content;
   };
 
-  // ------------------------------------------------------------
-  // Генерация PDF
-  // ------------------------------------------------------------
+  // Формирует содержание раздела нерегулярных чеклистов
+  const buildIrregularChecklistIndex = () => {
+    const irregularEvents = (
+      events || []
+    ).filter((event) =>
+      isIrregularEvent(event)
+    );
 
+    const groups = groupByTopic(
+      irregularEvents,
+      topics
+    );
+
+    const content = [
+      {
+        text: 'Нерегулярные события – Чеклисты',
+        style: 'mainHeading',
+        pageBreak: 'before',
+      },
+
+      {
+        text:
+          'Здесь содержатся чеклисты, привязанные к конкретным событиям, ' +
+          'которые могут произойти когда-угодно. Для каждого события ' +
+          'коротко пояснена суть изменений. Сами события сгруппированы по ' +
+          'темам для удобства поиска, в каждой теме наиболее вероятные ' +
+          'события в начале списка.',
+        style: 'bodyText',
+      },
+
+      {
+        text:
+          'В чеклисте идёт сортировка по страницам и для каждой указание ' +
+          'места актуализации.',
+        style: 'bodyText',
+        margin: [0, 10, 0, 28],
+      },
+
+      {
+        text: 'Список событий',
+        style: 'listHeading',
+        alignment: 'center',
+      },
+    ];
+
+    groups.forEach(
+      ([topicName, topicEvents]) => {
+        content.push({
+          text: `${topicName}:`,
+          style: 'topicHeading',
+          margin: [0, 8, 0, 3],
+        });
+
+        content.push({
+          ol: topicEvents.map(
+            (event) =>
+              getEventSortName(event)
+          ),
+          style: 'bodyText',
+          margin: [18, 0, 0, 10],
+        });
+      }
+    );
+
+    return content;
+  };
+
+  // Формирует отдельный нерегулярный чеклист
+  const buildIrregularChecklistPage = (
+    event,
+    pagesByEventId
+  ) => {
+    const entriesByPage = {};
+
+    (
+      pagesByEventId[event.id] || []
+    ).forEach(({ page, element }) => {
+      if (!page) return;
+
+      if (!entriesByPage[page.id]) {
+        entriesByPage[page.id] = {
+          page,
+          elements: [],
+        };
+      }
+
+      entriesByPage[page.id].elements.push(
+        element
+      );
+    });
+
+    const entries = Object.values(
+      entriesByPage
+    );
+
+    const description =
+      getEventDescription(event);
+
+    const topicName = getTopicName(
+      event,
+      topics
+    );
+
+    const content = [
+      {
+        text: `Чеклист – ${getEventTitle(
+          event
+        )}`,
+        style: 'checklistHeading',
+        pageBreak: 'before',
+      },
+
+      {
+        text: `Тема: ${topicName}`,
+        style: 'bodyText',
+        margin: [0, 0, 0, 10],
+      },
+
+      ...(description
+        ? [
+            {
+              text: description,
+              style: 'italicText',
+              margin: [0, 0, 0, 16],
+            },
+          ]
+        : []),
+    ];
+
+    if (!entries.length) {
+      content.push({
+        text:
+          'Нет элементов, привязанных к этому событию',
+        style: 'emptyText',
+      });
+
+      return content;
+    }
+
+    entries.forEach((entry, index) => {
+      const page = entry.page;
+
+      content.push({
+        text: `${index + 1}. ${
+          page.title || ''
+        }`,
+        style: 'eventPageHeading',
+        margin: [0, 10, 0, 3],
+      });
+
+      const url = getPageUrl(page);
+
+      if (url) {
+        content.push({
+          text: `(${url})`,
+          style: 'eventPageUrl',
+          margin: [18, 0, 0, 5],
+        });
+      }
+
+      entry.elements.forEach(
+        (element) => {
+          content.push({
+            columns: [
+              checkbox,
+              {
+                text:
+                  element.name || '',
+                style: 'checkItem',
+              },
+            ],
+
+            columnGap: 6,
+            margin: [18, 0, 0, 5],
+          });
+        }
+      );
+    });
+
+    return content;
+  };
+
+  // Формирует нижний колонтитул PDF
+  const footer = (
+    currentPage,
+    pageCount
+  ) => {
+    return {
+      columns: [
+        {
+          text: `${currentPage}`,
+          alignment: 'center',
+          fontSize: 9,
+          color: '#444444',
+        },
+      ],
+
+      margin: [0, 0, 0, 24],
+    };
+  };
+
+  // Генерирует и скачивает PDF-файл
   const handleGeneratePdf = async () => {
     setError('');
     setGenerating(true);
 
     try {
-      const { elementsByPageId, eventsByElementId, pagesByEventId } =
-        await collectPageEventData();
+      const {
+        elementsByPageId,
+        eventsByElementId,
+        pagesByEventId,
+      } = await collectPageEventData();
 
-      const flatPages = flattenPageTree(pageTree);
+      const flatPages =
+        flattenPageTree(pageTree);
 
-      const docDefinition = {
-        pageMargins: [40, 60, 40, 60],
-        defaultStyle: { font: 'Roboto', fontSize: 11 },
-        styles: {
-          coverTitle: { fontSize: 20, bold: true, margin: [0, 0, 0, 20] },
-          sectionHeader: { fontSize: 18, bold: true, margin: [0, 0, 0, 14] },
-          subSectionHeader: { fontSize: 15, bold: true, margin: [0, 10, 0, 8] },
-          pageHeader: { fontSize: 14, bold: true, margin: [0, 0, 0, 8] },
-          subHeader: { fontSize: 12, bold: true, margin: [0, 6, 0, 4] },
-          checklistHeader: { fontSize: 13, bold: true, margin: [0, 12, 0, 6] },
-        },
-        content: [
+      const regularGroups =
+        getRegularGroups();
+
+      const irregularEvents = (
+        events || []
+      ).filter((event) =>
+        isIrregularEvent(event)
+      );
+
+      const content = [];
+
+      content.push({
+        stack: [
           {
-            text: `Карта актуальности сайта – ${project?.name || ''}`,
-            style: 'coverTitle',
+            text: `Карта актуальности сайта – ${
+              project?.name || ''
+            }`,
+            style: 'coverHeading',
           },
+
           {
             text:
               'Об инструменте: карта актуальности позволяет поддерживать ' +
               'актуальность сайта и своевременно вносить обновления.',
-            margin: [0, 0, 0, 10],
+            style: 'coverText',
           },
-          { text: 'Как устроено:', bold: true, margin: [0, 0, 0, 6] },
+
+          {
+            text: 'Как устроено:',
+            style: 'coverLabel',
+            margin: [0, 10, 0, 8],
+          },
+
           {
             ol: [
               'Раздел «Карта сайта» - общее понимание страниц и тематик контента',
-              'Раздел «Страницы сайта» - детальное рассмотрение каждой страницы по содержанию контента, список динамических блоков',
-              'Раздел «Чеклисты событий» - продуманные списки для регулярного обновления информации на всех страницах сайта',
+              'Раздел «Страницы сайта» - детальное рассмотрение каждой страницы по содержанию контента, список динамических блоков.',
+              'Раздел «Чеклисты событий» - продуманные списки для регулярного обновления информации на всех страниц сайта.',
             ],
-            margin: [0, 0, 0, 10],
+            style: 'coverText',
+          },
+        ],
+      });
+
+      content.push({
+        text: 'Карта сайта',
+        style: 'mainHeading',
+        pageBreak: 'before',
+      });
+
+      content.push({
+        ul: buildSitemapList(pageTree),
+        style: 'sitemap',
+      });
+
+      content.push(
+        ...buildPagesListSection(
+          flatPages
+        )
+      );
+
+      flatPages.forEach(
+        (page, index) => {
+          content.push(
+            ...buildPageDetail(
+              page,
+              index + 1,
+              elementsByPageId,
+              eventsByElementId
+            )
+          );
+        }
+      );
+
+      content.push(
+        ...buildChecklistsIntro()
+      );
+
+      content.push(
+        ...buildRegularChecklistIndex()
+      );
+
+      regularGroups.forEach((group) => {
+        content.push(
+          ...buildRegularChecklistPage(
+            group,
+            pagesByEventId
+          )
+        );
+      });
+
+      content.push(
+        ...buildIrregularChecklistIndex()
+      );
+
+      irregularEvents.forEach((event) => {
+        content.push(
+          ...buildIrregularChecklistPage(
+            event,
+            pagesByEventId
+          )
+        );
+      });
+
+      const docDefinition = {
+        pageSize: 'A4',
+
+        pageMargins: [
+          72,
+          72,
+          72,
+          48,
+        ],
+
+        defaultStyle: {
+          font: 'Roboto',
+          fontSize: 14,
+          lineHeight: 1.32,
+        },
+
+        footer,
+
+        styles: {
+          coverHeading: {
+            fontSize: 28,
+            bold: false,
+            margin: [0, 0, 0, 20],
           },
 
-          { text: 'Карта сайта', style: 'sectionHeader', pageBreak: 'before' },
-          { ul: buildSitemapList(pageTree) },
+          coverText: {
+            fontSize: 14,
+            lineHeight: 1.32,
+          },
 
-          { text: 'Страницы сайта', style: 'sectionHeader', pageBreak: 'before' },
-          { ol: flatPages.map((page) => page.title) },
+          coverLabel: {
+            fontSize: 14,
+            bold: true,
+          },
 
-          ...buildPagesDetailSection(flatPages, elementsByPageId, eventsByElementId),
+          mainHeading: {
+            fontSize: 28,
+            bold: false,
+            margin: [0, 0, 0, 18],
+          },
 
-          ...buildChecklistsSection(pagesByEventId),
-        ],
+          detailHeading: {
+            fontSize: 28,
+            bold: false,
+            margin: [0, 0, 0, 4],
+          },
+
+          checklistHeading: {
+            fontSize: 28,
+            bold: false,
+            margin: [0, 0, 0, 18],
+          },
+
+          bodyText: {
+            fontSize: 14,
+            lineHeight: 1.32,
+          },
+
+          pageList: {
+            fontSize: 14,
+            lineHeight: 1.32,
+          },
+
+          sitemap: {
+            fontSize: 14,
+            lineHeight: 1.32,
+          },
+
+          elementList: {
+            fontSize: 14,
+            lineHeight: 1.32,
+          },
+
+          boldList: {
+            fontSize: 14,
+            bold: true,
+            lineHeight: 1.32,
+          },
+
+          boldLabel: {
+            fontSize: 14,
+            bold: true,
+          },
+
+          sectionLabel: {
+            fontSize: 14,
+            bold: true,
+            margin: [0, 8, 0, 4],
+          },
+
+          bulletText: {
+            fontSize: 14,
+            lineHeight: 1.32,
+          },
+
+          checkItem: {
+            fontSize: 14,
+            lineHeight: 1.32,
+          },
+
+          italicText: {
+            fontSize: 14,
+            italics: true,
+            lineHeight: 1.32,
+          },
+
+          emptyText: {
+            fontSize: 14,
+            italics: true,
+            color: '#888888',
+          },
+
+          pageTitle: {
+            fontSize: 14,
+            bold: false,
+            margin: [0, 0, 0, 2],
+          },
+
+          pageUrl: {
+            fontSize: 14,
+            bold: false,
+            margin: [0, 0, 0, 12],
+          },
+
+          detailUrl: {
+            fontSize: 14,
+            bold: false,
+            margin: [0, 0, 0, 12],
+          },
+
+          linkList: {
+            fontSize: 14,
+          },
+
+          eventPageHeading: {
+            fontSize: 14,
+            bold: true,
+          },
+
+          eventPageUrl: {
+            fontSize: 14,
+            bold: true,
+          },
+
+          eventDescriptionInline: {
+            fontSize: 14,
+            italics: false,
+            margin: [0, 3, 0, 0],
+          },
+
+          listHeading: {
+            fontSize: 20,
+            bold: true,
+            margin: [0, 0, 0, 12],
+          },
+
+          topicHeading: {
+            fontSize: 14,
+            bold: true,
+          },
+        },
+
+        content,
       };
 
-      const fileName = `Карта_актуальности_${project?.name || 'проект'}.pdf`;
-      pdfMake.createPdf(docDefinition).download(fileName);
-    } catch (err) {
-      console.error('Ошибка генерации PDF:', err);
-      setError('Не удалось сгенерировать PDF-файл');
+      const fileName = `Карта_актуальности_${
+        project?.name || 'проект'
+      }.pdf`;
+
+      pdfMake
+        .createPdf(docDefinition)
+        .download(fileName);
+    } catch {
+      setError(
+        'Не удалось сгенерировать PDF-файл'
+      );
     } finally {
       setGenerating(false);
     }
@@ -431,20 +1327,39 @@ function PdfGenerationSection({ project, pages, pageTree, events, topics }) {
   return (
     <div>
       <h3
-        className="text-xl font-semibold mb-2 text-center"
-        style={{ color: colors.primary }}
+        className="text-2xl font-semibold mb-2 text-center"
+        style={{
+          color: colors.primary,
+        }}
       >
         Генерация PDF
       </h3>
 
-      <hr className="mb-4" style={{ borderColor: colors.lightGray }} />
+      <hr
+        className="mb-4"
+        style={{
+          borderColor: colors.lightGray,
+        }}
+      />
 
-      <p className="text-base mb-4" style={{ color: colors.text }}>
-        Автоматически создаёт PDF-файл, включающий актуальную структуру сайта с
-        подробными чеклистами для регулярных и нерегулярных событий.
+      <p
+        className="text-base mb-4"
+        style={{
+          color: colors.text,
+        }}
+      >
+        Автоматически создаёт PDF-файл,
+        включающий актуальную структуру сайта
+        с подробными чеклистами для регулярных
+        и нерегулярных событий.
       </p>
 
-      <hr className="mb-4" style={{ borderColor: colors.lightGray }} />
+      <hr
+        className="mb-4"
+        style={{
+          borderColor: colors.lightGray,
+        }}
+      />
 
       <div className="flex justify-center">
         <button
@@ -452,20 +1367,30 @@ function PdfGenerationSection({ project, pages, pageTree, events, topics }) {
           disabled={generating}
           className="text-white font-semibold px-5 py-2.5 rounded-xl flex items-center gap-2"
           style={{
-            backgroundColor: colors.lightBlue,
+            backgroundColor:
+              colors.lightBlue,
             opacity: generating ? 0.7 : 1,
-            cursor: generating ? 'not-allowed' : 'pointer',
+            cursor: generating
+              ? 'not-allowed'
+              : 'pointer',
           }}
         >
           <FileText size={18} />
-          {generating ? 'Создание...' : 'Создать отчёт PDF'}
+
+          {generating
+            ? 'Создание...'
+            : 'Создать отчёт PDF'}
         </button>
       </div>
 
       {error && (
         <div
           className="text-sm px-3 py-2 rounded-lg mt-4 text-center"
-          style={{ color: '#b42318', backgroundColor: '#fef3f2', border: '1px solid #fecdca' }}
+          style={{
+            color: '#b42318',
+            backgroundColor: '#fef3f2',
+            border: '1px solid #fecdca',
+          }}
         >
           {error}
         </div>

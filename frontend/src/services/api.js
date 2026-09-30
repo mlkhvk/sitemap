@@ -1,38 +1,33 @@
 import axios from 'axios';
 
 const api = axios.create({
-  baseURL: 'http://localhost:8000',
+  baseURL: '/api',
   headers: {
     'Content-Type': 'application/json',
   },
 });
 
-
-// ============================================================
-// PROJECTS
-// ============================================================
-
+// Получает список проектов
 export const getProjects = () => {
   return api.get('/projects');
 };
 
+// Создаёт новый проект
 export const createProject = (data) => {
   return api.post('/projects', data);
 };
 
+// Удаляет проект
 export const deleteProject = (projectId) => {
   return api.delete(`/projects/${projectId}`);
 };
 
-
-// ============================================================
-// PAGES
-// ============================================================
-
+// Получает страницы проекта
 export const getPages = (projectId) => {
   return api.get(`/projects/${projectId}/pages`);
 };
 
+// Создаёт новую страницу
 export const createPage = (projectId, data) => {
   return api.post(
     `/projects/${projectId}/pages`,
@@ -40,6 +35,7 @@ export const createPage = (projectId, data) => {
   );
 };
 
+// Обновляет страницу
 export const updatePage = (pageId, data) => {
   return api.put(
     `/pages/${pageId}`,
@@ -47,23 +43,21 @@ export const updatePage = (pageId, data) => {
   );
 };
 
+// Удаляет страницу
 export const deletePage = (pageId) => {
   return api.delete(
     `/pages/${pageId}`
   );
 };
 
-
-// ============================================================
-// ELEMENTS
-// ============================================================
-
+// Получает элементы страницы
 export const getElements = (pageId) => {
   return api.get(
     `/pages/${pageId}/elements`
   );
 };
 
+// Создаёт элемент страницы
 export const createElement = (
   pageId,
   data
@@ -74,6 +68,7 @@ export const createElement = (
   );
 };
 
+// Обновляет элемент
 export const updateElement = (
   elementId,
   data
@@ -84,6 +79,7 @@ export const updateElement = (
   );
 };
 
+// Удаляет элемент
 export const deleteElement = (
   elementId
 ) => {
@@ -92,11 +88,7 @@ export const deleteElement = (
   );
 };
 
-
-// ============================================================
-// EVENTS
-// ============================================================
-
+// Получает события проекта
 export const getEvents = (projectId, eventType = null) => {
   const params = {
     project_id: projectId,
@@ -111,6 +103,7 @@ export const getEvents = (projectId, eventType = null) => {
   });
 };
 
+// Создаёт событие
 export const createEvent = (
   data
 ) => {
@@ -120,6 +113,7 @@ export const createEvent = (
   );
 };
 
+// Удаляет событие
 export const deleteEvent = (
   eventId
 ) => {
@@ -128,6 +122,7 @@ export const deleteEvent = (
   );
 };
 
+// Обновляет событие
 export const updateEvent = (
   eventId,
   data
@@ -138,6 +133,7 @@ export const updateEvent = (
   );
 };
 
+// Получает элементы, связанные с событием
 export const getEventElementsByEvent = (
   eventId
 ) => {
@@ -146,11 +142,7 @@ export const getEventElementsByEvent = (
   );
 };
 
-
-// ============================================================
-// EVENTS OF ELEMENT
-// ============================================================
-
+// Получает события элемента
 export const getEventElements = (
   elementId
 ) => {
@@ -159,6 +151,7 @@ export const getEventElements = (
   );
 };
 
+// Привязывает событие к элементу
 export const attachEventToElement = (
   elementId,
   eventId
@@ -168,6 +161,7 @@ export const attachEventToElement = (
   );
 };
 
+// Удаляет связь события с элементом
 export const deleteEventElement = (
   elementId,
   eventId
@@ -177,11 +171,7 @@ export const deleteEventElement = (
   );
 };
 
-
-// ============================================================
-// TOPICS
-// ============================================================
-
+// Получает темы проекта
 export const getTopics = (projectId) => {
   return api.get('/topics', {
     params: {
@@ -190,6 +180,7 @@ export const getTopics = (projectId) => {
   });
 };
 
+// Создаёт тему
 export const createTopic = (data) => {
   return api.post(
     '/topics',
@@ -197,6 +188,7 @@ export const createTopic = (data) => {
   );
 };
 
+// Обновляет тему
 export const updateTopic = (
   topicId,
   data
@@ -207,6 +199,7 @@ export const updateTopic = (
   );
 };
 
+// Удаляет тему
 export const deleteTopic = (
   topicId
 ) => {
@@ -215,15 +208,12 @@ export const deleteTopic = (
   );
 };
 
-
-// ============================================================
-// TASKS
-// ============================================================
-
+// Получает список задач
 export const getTasks = () => {
   return api.get('/tasks');
 };
 
+// Создаёт задачу
 export const createTask = (
   data
 ) => {
@@ -233,6 +223,7 @@ export const createTask = (
   );
 };
 
+// Обновляет задачу
 export const updateTask = (
   taskId,
   data
@@ -243,6 +234,7 @@ export const updateTask = (
   );
 };
 
+// Удаляет задачу
 export const deleteTask = (
   taskId
 ) => {
@@ -251,13 +243,9 @@ export const deleteTask = (
   );
 };
 
+// Получает чеклист
 export const getChecklist = () => {
   return api.get('/tasks/checklist');
 };
-
-
-// ============================================================
-// DEFAULT EXPORT
-// ============================================================
 
 export default api;

@@ -1,5 +1,14 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { X, Plus, Trash2, ChevronRight, ChevronDown, ArrowRight, Calendar, Search } from 'lucide-react';
+import {
+  X,
+  Plus,
+  Trash2,
+  ChevronRight,
+  ChevronDown,
+  ArrowRight,
+  Calendar,
+  Search,
+} from 'lucide-react';
 import colors from '../colors';
 import {
   getEvents,
@@ -12,53 +21,90 @@ import {
   deleteEventElement,
 } from '../services/api';
 
-// ============ ВРЕМЕННЫЕ ID ============
-// Всё, что создано в модалке и ещё не сохранено в БД, получает id вида "tmp_...".
-// Настоящие id приходят от бэкенда при сохранении.
 let tmpCounter = 0;
+
 const tmpId = () => `tmp_${Date.now()}_${++tmpCounter}`;
+
 const isTmp = (id) => typeof id === 'string' && id.startsWith('tmp_');
 
-// В БД периодичность хранится строчными буквами (check_periodicity), в интерфейсе показываем с заглавной
-const capitalize = (str) => (str ? str.charAt(0).toUpperCase() + str.slice(1) : '');
+const capitalize = (str) =>
+  str ? str.charAt(0).toUpperCase() + str.slice(1) : '';
 
-// ============ ДЕРЕВО ЭЛЕМЕНТОВ ИЗ БД ============
-// Приводит элементы от бэкенда к виду, который ждёт модалка: { id, name, children: [], events: [] }.
-// Работает и с вложенным деревом (children), и с плоским списком (parent_element_id).
+// Приводит элементы к единому виду для работы с деревом
 const normalizeNodes = (nodes) =>
   (nodes || []).map((el) => ({
     ...el,
     children: normalizeNodes(el.children),
-    events: Array.isArray(el.events) ? el.events : undefined, // undefined = событий нет в ответе, догрузим
+    events: Array.isArray(el.events) ? el.events : undefined,
   }));
 
+// Строит дерево элементов из вложенного или плоского списка
 const buildTree = (list) => {
-  const hasNested = list.some((el) => Array.isArray(el.children) && el.children.length > 0);
-  if (hasNested) return normalizeNodes(list);
+  const hasNested = list.some(
+    (el) => Array.isArray(el.children) && el.children.length > 0
+  );
 
-  const byId = new Map(list.map((el) => [el.id, { ...el, children: [], events: Array.isArray(el.events) ? el.events : undefined }]));
+  if (hasNested) {
+    return normalizeNodes(list);
+  }
+
+  const byId = new Map(
+    list.map((el) => [
+      el.id,
+      {
+        ...el,
+        children: [],
+        events: Array.isArray(el.events) ? el.events : undefined,
+      },
+    ])
+  );
+
   const roots = [];
+
   byId.forEach((node) => {
-    const parent = node.parent_element_id != null ? byId.get(node.parent_element_id) : null;
-    if (parent) parent.children.push(node);
-    else roots.push(node);
+    const parent =
+      node.parent_element_id != null
+        ? byId.get(node.parent_element_id)
+        : null;
+
+    if (parent) {
+      parent.children.push(node);
+    } else {
+      roots.push(node);
+    }
   });
+
   return roots;
 };
 
-const PeriodicityDropdown = ({ value, onChange, options, placeholder = 'Периодичность', disabled = false }) => {
+// Отображает выбор периодичности в выпадающем списке
+const PeriodicityDropdown = ({
+  value,
+  onChange,
+  options,
+  placeholder = 'Периодичность',
+  disabled = false,
+}) => {
   const [open, setOpen] = useState(false);
   const containerRef = useRef(null);
 
   useEffect(() => {
     if (!open) return;
+
     const handleClickOutside = (e) => {
-      if (containerRef.current && !containerRef.current.contains(e.target)) {
+      if (
+        containerRef.current &&
+        !containerRef.current.contains(e.target)
+      ) {
         setOpen(false);
       }
     };
+
     document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
   }, [open]);
 
   return (
@@ -68,21 +114,32 @@ const PeriodicityDropdown = ({ value, onChange, options, placeholder = 'Пери
         disabled={disabled}
         onClick={() => setOpen((prev) => !prev)}
         className={`flex items-center gap-1.5 px-3 py-2.5 rounded-lg text-sm whitespace-nowrap bg-white ${
-          disabled ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'
+          disabled
+            ? 'cursor-not-allowed opacity-60'
+            : 'cursor-pointer'
         }`}
         style={{
-          border: `1px solid ${open ? colors.primary : colors.lightGray}`,
+          border: `1px solid ${
+            open ? colors.primary : colors.lightGray
+          }`,
           color: value ? colors.black : colors.secondaryText,
         }}
       >
         {value || placeholder}
-        <ChevronDown size={14} style={{ color: colors.secondaryText }} />
+        <ChevronDown
+          size={14}
+          style={{ color: colors.secondaryText }}
+        />
       </button>
 
       {open && (
         <div
           className="absolute right-0 z-10 mt-1 rounded-lg shadow-lg overflow-hidden"
-          style={{ border: `1px solid ${colors.lightGray}`, backgroundColor: colors.white, minWidth: '170px' }}
+          style={{
+            border: `1px solid ${colors.lightGray}`,
+            backgroundColor: colors.white,
+            minWidth: '170px',
+          }}
         >
           {options.map((option) => (
             <div
@@ -93,11 +150,19 @@ const PeriodicityDropdown = ({ value, onChange, options, placeholder = 'Пери
               }}
               className="px-3 py-2.5 text-sm cursor-pointer transition-colors"
               style={{
-                backgroundColor: option === value ? colors.blue : colors.white,
+                backgroundColor:
+                  option === value ? colors.blue : colors.white,
                 color: colors.black,
               }}
-              onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = colors.blue; }}
-              onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = option === value ? colors.blue : colors.white; }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.backgroundColor = colors.blue;
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.backgroundColor =
+                  option === value
+                    ? colors.blue
+                    : colors.white;
+              }}
             >
               {option || '—'}
             </div>
@@ -108,9 +173,7 @@ const PeriodicityDropdown = ({ value, onChange, options, placeholder = 'Пери
   );
 };
 
-// Раскрывающаяся панель «периодичность + дата» под иконкой календаря.
-// Используется и при создании события, и в списке событий.
-// Панель позиционируется через fixed, чтобы её не обрезал скролл-контейнер списка.
+// Показывает периодичность и дату события в отдельной панели
 const SchedulePopover = ({
   open,
   onOpenChange,
@@ -123,47 +186,75 @@ const SchedulePopover = ({
 }) => {
   const containerRef = useRef(null);
   const buttonRef = useRef(null);
-  const [pos, setPos] = useState({ top: 0, right: 0 });
+  const [pos, setPos] = useState({
+    top: 0,
+    right: 0,
+  });
 
-  // если компонент смонтирован с «залипшим» open=true (например, вернулись на шаг), закрываем
   useEffect(() => {
-    if (open) onOpenChange(false);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    if (open) {
+      onOpenChange(false);
+    }
   }, []);
 
   useEffect(() => {
     if (!open) return;
+
     const close = () => onOpenChange(false);
+
     const handleClickOutside = (e) => {
-      if (containerRef.current && !containerRef.current.contains(e.target)) close();
+      if (
+        containerRef.current &&
+        !containerRef.current.contains(e.target)
+      ) {
+        close();
+      }
     };
+
     document.addEventListener('mousedown', handleClickOutside);
     window.addEventListener('scroll', close, true);
     window.addEventListener('resize', close);
+
     return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener(
+        'mousedown',
+        handleClickOutside
+      );
       window.removeEventListener('scroll', close, true);
       window.removeEventListener('resize', close);
     };
   }, [open, onOpenChange]);
 
+  // Открывает панель рядом с кнопкой календаря
   const toggle = () => {
     if (!open && buttonRef.current) {
       const rect = buttonRef.current.getBoundingClientRect();
-      setPos({ top: rect.bottom + 4, right: window.innerWidth - rect.right });
+
+      setPos({
+        top: rect.bottom + 4,
+        right: window.innerWidth - rect.right,
+      });
     }
+
     onOpenChange(!open);
   };
 
   return (
-    <div ref={containerRef} className="relative flex-shrink-0">
+    <div
+      ref={containerRef}
+      className="relative flex-shrink-0"
+    >
       <button
         ref={buttonRef}
         type="button"
         onClick={toggle}
         className={`flex items-center justify-center rounded-lg cursor-pointer bg-white ${buttonClassName}`}
         style={{
-          border: `1px solid ${open || date ? colors.primary : colors.lightGray}`,
+          border: `1px solid ${
+            open || date
+              ? colors.primary
+              : colors.lightGray
+          }`,
           color: colors.primary,
         }}
         title="Периодичность и дата"
@@ -182,13 +273,21 @@ const SchedulePopover = ({
             minWidth: '200px',
           }}
         >
-          <PeriodicityDropdown value={periodicity} onChange={onPeriodicityChange} options={options} />
+          <PeriodicityDropdown
+            value={periodicity}
+            onChange={onPeriodicityChange}
+            options={options}
+          />
+
           <input
             type="date"
             value={date}
             onChange={(e) => onDateChange(e.target.value)}
             className="px-3 py-2 rounded-lg text-sm outline-none bg-white"
-            style={{ border: `1px solid ${colors.lightGray}`, color: colors.black }}
+            style={{
+              border: `1px solid ${colors.lightGray}`,
+              color: colors.black,
+            }}
           />
         </div>
       )}
@@ -200,11 +299,10 @@ const AddPageModal = ({
   isOpen,
   onClose,
   projectId,
-  onSavePage, // должен возвращать созданную страницу (res.data)
+  onSavePage,
   onUpdatePage,
   editingPage = null,
 }) => {
-  // ============ STATE ============
   const [pageTitle, setPageTitle] = useState('');
   const [links, setLinks] = useState(['']);
 
@@ -214,51 +312,151 @@ const AddPageModal = ({
   const [existingEvents, setExistingEvents] = useState([]);
 
   const [isSaving, setIsSaving] = useState(false);
-  const isSavingRef = useRef(false); // синхронный guard против двойного сабмита
+  const isSavingRef = useRef(false);
 
-  // что уже создано в БД в рамках текущего сохранения (защита от дублей при повторной попытке)
   const pageIdRef = useRef(null);
-  const idMapRef = useRef(new Map()); // tmp id -> настоящий id из БД
-  // снимок элементов страницы на момент открытия (режим редактирования):
-  // id элемента -> { parentId, depth, eventIds: Set | null }. Нужен, чтобы понять, что изменилось.
+  const idMapRef = useRef(new Map());
   const originalRef = useRef(new Map());
 
   const [activeStep, setActiveStep] = useState(0);
-  const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
-  const [expandedElements, setExpandedElements] = useState(new Set());
-  const [addingSubElementId, setAddingSubElementId] = useState(null);
+  const [snackbar, setSnackbar] = useState({
+    open: false,
+    message: '',
+    severity: 'success',
+  });
+
+  const [expandedElements, setExpandedElements] =
+    useState(new Set());
+
+  const [addingSubElementId, setAddingSubElementId] =
+    useState(null);
+
   const [subElementName, setSubElementName] = useState('');
 
-  const [eventType, setEventType] = useState('irregular'); // 'regular' | 'irregular'
+  const [eventType, setEventType] = useState('irregular');
   const [newEventName, setNewEventName] = useState('');
-  const [newEventPeriodicity, setNewEventPeriodicity] = useState('Ежегодно');
+  const [newEventPeriodicity, setNewEventPeriodicity] =
+    useState('Ежегодно');
   const [newEventDate, setNewEventDate] = useState('');
   const [eventSearch, setEventSearch] = useState('');
 
-  // раскрывающаяся панель периодичность/дата при создании регулярного события
   const [scheduleOpen, setScheduleOpen] = useState(false);
-  // id события в списке, у которого сейчас открыта панель «периодичность/дата»
-  const [openScheduleId, setOpenScheduleId] = useState(null);
+  const [openScheduleId, setOpenScheduleId] =
+    useState(null);
 
-  const periodicityOptions = ['Ежегодно', 'Ежемесячно', 'Раз в квартал', 'Еженедельно'];
+  const periodicityOptions = [
+    'Ежегодно',
+    'Ежемесячно',
+    'Раз в квартал',
+    'Еженедельно',
+  ];
 
-  // ============ ЗАГРУЗКА ДАННЫХ ============
+  // Загружает события текущего проекта
+  const fetchEvents = useCallback(async () => {
+    try {
+      const response = await getEvents(projectId);
+      setExistingEvents(response.data || []);
+    } catch {
+      setExistingEvents([]);
+    }
+  }, [projectId]);
+
+  // Загружает элементы страницы и связанные с ними события
+  const loadPageElements = useCallback(
+    async (pageId, isCancelled = () => false) => {
+      try {
+        const { data } = await getElements(pageId);
+        const tree = buildTree(data || []);
+
+        // Загружает события для каждого элемента дерева
+        const loadEvents = async (nodes) => {
+          await Promise.all(
+            nodes.map(async (node) => {
+              if (!Array.isArray(node.events)) {
+                try {
+                  const res = await getEventElements(node.id);
+                  node.events = res.data || [];
+                } catch {
+                  node.events = [];
+                  node.eventsLoadFailed = true;
+                }
+              }
+
+              await loadEvents(node.children);
+            })
+          );
+        };
+
+        await loadEvents(tree);
+
+        if (!isCancelled()) {
+          const snapshot = new Map();
+
+          // Сохраняет исходное состояние элементов перед редактированием
+          const walk = (nodes, parentId, depth) => {
+            nodes.forEach((node) => {
+              snapshot.set(node.id, {
+                parentId,
+                depth,
+                eventIds: node.eventsLoadFailed
+                  ? null
+                  : new Set(
+                      (node.events || []).map(
+                        (event) => event.id
+                      )
+                    ),
+              });
+
+              walk(
+                node.children || [],
+                node.id,
+                depth + 1
+              );
+            });
+          };
+
+          walk(tree, null, 0);
+
+          originalRef.current = snapshot;
+          setElements(tree);
+        }
+      } catch {
+        if (!isCancelled()) {
+          setSnackbar({
+            open: true,
+            message:
+              'Не удалось загрузить элементы страницы',
+            severity: 'error',
+          });
+        }
+      }
+    },
+    []
+  );
 
   useEffect(() => {
-    let cancelled = false; // защита от ответа, пришедшего после закрытия модалки
+    let cancelled = false;
 
     if (isOpen && editingPage) {
       setPageTitle(editingPage.title || '');
+
       setLinks(
-        editingPage.links && editingPage.links.length > 0
+        editingPage.links &&
+          editingPage.links.length > 0
           ? editingPage.links.map((link) => link.url)
           : ['']
       );
+
       setElements([]);
       setSelectedElementId(null);
       setActiveStep(0);
       setExpandedElements(new Set());
-      loadPageElements(editingPage.id, () => cancelled);
+
+      loadPageElements(
+        editingPage.id,
+        () => cancelled
+      );
+
       setAddingSubElementId(null);
       setSubElementName('');
       setEventType('irregular');
@@ -267,10 +465,12 @@ const AddPageModal = ({
       setNewEventDate('');
       setEventSearch('');
       setScheduleOpen(false);
+
       isSavingRef.current = false;
       pageIdRef.current = null;
       idMapRef.current = new Map();
       originalRef.current = new Map();
+
       fetchEvents();
     } else if (isOpen) {
       setPageTitle('');
@@ -278,6 +478,7 @@ const AddPageModal = ({
       setElements([]);
       setSelectedElementId(null);
       setActiveStep(0);
+      setExpandedElements(new Set());
       setAddingSubElementId(null);
       setSubElementName('');
       setEventType('irregular');
@@ -286,359 +487,475 @@ const AddPageModal = ({
       setNewEventDate('');
       setEventSearch('');
       setScheduleOpen(false);
+
       isSavingRef.current = false;
       pageIdRef.current = null;
       idMapRef.current = new Map();
       originalRef.current = new Map();
+
       fetchEvents();
     }
+
     return () => {
       cancelled = true;
     };
-  }, [isOpen, editingPage, projectId]);
+  }, [
+    isOpen,
+    editingPage,
+    projectId,
+    loadPageElements,
+    fetchEvents,
+  ]);
 
-  const fetchEvents = useCallback(async () => {
-    try {
-      const response = await getEvents(projectId);
-      setExistingEvents(response.data || []);
-    } catch (error) {
-      console.error('Ошибка загрузки событий:', error);
-    }
-  }, [projectId]);
-
-  // Загружает элементы редактируемой страницы и события, привязанные к каждому элементу
-  const loadPageElements = useCallback(async (pageId, isCancelled = () => false) => {
-    try {
-      const { data } = await getElements(pageId);
-      const tree = buildTree(data || []);
-
-      const loadEvents = async (nodes) => {
-        await Promise.all(
-          nodes.map(async (node) => {
-            if (!Array.isArray(node.events)) {
-              try {
-                const res = await getEventElements(node.id);
-                node.events = res.data || [];
-              } catch (err) {
-                console.error('Ошибка загрузки событий элемента:', err);
-                node.events = [];
-                node.eventsLoadFailed = true; // привязки этого элемента не сравниваем при сохранении
-              }
-            }
-            await loadEvents(node.children);
-          })
-        );
-      };
-      await loadEvents(tree);
-
-      if (!isCancelled()) {
-        // снимок исходного состояния: по нему при сохранении определяем добавленные/убранные привязки и удалённые элементы
-        const snapshot = new Map();
-        const walk = (nodes, parentId, depth) => {
-          nodes.forEach((node) => {
-            snapshot.set(node.id, {
-              parentId,
-              depth,
-              eventIds: node.eventsLoadFailed ? null : new Set((node.events || []).map((e) => e.id)),
-            });
-            walk(node.children || [], node.id, depth + 1);
-          });
-        };
-        walk(tree, null, 0);
-        originalRef.current = snapshot;
-
-        setElements(tree);
-      }
-    } catch (error) {
-      console.error('Ошибка загрузки элементов страницы:', error);
-      if (!isCancelled()) {
-        setSnackbar({ open: true, message: 'Не удалось загрузить элементы страницы', severity: 'error' });
-      }
-    }
-  }, []);
-
-  const findElement = useCallback((id, tree = elements) => {
-    for (const element of tree) {
-      if (element.id === id) return element;
-      if (element.children) {
-        const found = findElement(id, element.children);
-        if (found) return found;
-      }
-    }
-    return null;
-  }, [elements]);
-
-  const deleteElementFromTree = useCallback((id, tree = elements) => {
-    for (let i = 0; i < tree.length; i++) {
-      if (tree[i].id === id) {
-        tree.splice(i, 1);
-        setElements([...elements]);
-        if (selectedElementId === id) {
-          setSelectedElementId(null);
+  // Находит элемент в любом уровне дерева
+  const findElement = useCallback(
+    (id, tree = elements) => {
+      for (const element of tree) {
+        if (element.id === id) {
+          return element;
         }
-        return true;
+
+        if (element.children) {
+          const found = findElement(id, element.children);
+
+          if (found) {
+            return found;
+          }
+        }
       }
-      if (tree[i].children) {
-        const found = deleteElementFromTree(id, tree[i].children);
-        if (found) {
+
+      return null;
+    },
+    [elements]
+  );
+
+  // Удаляет элемент из локального дерева
+  const deleteElementFromTree = useCallback(
+    (id, tree = elements) => {
+      for (let i = 0; i < tree.length; i++) {
+        if (tree[i].id === id) {
+          tree.splice(i, 1);
           setElements([...elements]);
+
+          if (selectedElementId === id) {
+            setSelectedElementId(null);
+          }
+
           return true;
         }
+
+        if (tree[i].children) {
+          const found = deleteElementFromTree(
+            id,
+            tree[i].children
+          );
+
+          if (found) {
+            setElements([...elements]);
+            return true;
+          }
+        }
       }
-    }
-    return false;
-  }, [elements, selectedElementId]);
 
-  // ============ ЭЛЕМЕНТЫ (локально, без запросов) ============
+      return false;
+    },
+    [elements, selectedElementId]
+  );
 
-  const addElement = useCallback((name) => {
-    const newElement = {
-      id: tmpId(),
-      name: name,
-      parent_element_id: null,
-      children: [],
-      events: []
-    };
-    setElements([...elements, newElement]);
-  }, [elements]);
-
-  const addSubElement = useCallback((parentId, name) => {
-    const parent = findElement(parentId);
-    if (parent) {
+  // Добавляет корневой элемент в локальное дерево
+  const addElement = useCallback(
+    (name) => {
       const newElement = {
         id: tmpId(),
-        name: name,
-        parent_element_id: parentId,
+        name,
+        parent_element_id: null,
         children: [],
-        events: []
+        events: [],
       };
-      parent.children.push(newElement);
-      setElements([...elements]);
-      setExpandedElements(prev => new Set(prev).add(parentId));
-    }
-  }, [elements, findElement]);
 
-  // ============ СОБЫТИЯ (локально, без запросов) ============
+      setElements([...elements, newElement]);
+    },
+    [elements]
+  );
 
+  // Добавляет дочерний элемент к выбранному родителю
+  const addSubElement = useCallback(
+    (parentId, name) => {
+      const parent = findElement(parentId);
+
+      if (parent) {
+        const newElement = {
+          id: tmpId(),
+          name,
+          parent_element_id: parentId,
+          children: [],
+          events: [],
+        };
+
+        parent.children.push(newElement);
+        setElements([...elements]);
+
+        setExpandedElements(
+          (prev) => new Set(prev).add(parentId)
+        );
+      }
+    },
+    [elements, findElement]
+  );
+
+  // Создаёт новое событие только в локальном состоянии
   const handleCreateEvent = useCallback(() => {
     if (!newEventName.trim()) {
       return;
     }
 
-    const newEvent = eventType === 'regular'
-      ? {
-          id: tmpId(),
-          name: newEventName.trim(),
-          event_type: 'regular',
-          periodicity: newEventPeriodicity,
-          start_date: newEventDate,
-        }
-      : {
-          id: tmpId(),
-          name: newEventName.trim(),
-          event_type: 'irregular',
-        };
+    const newEvent =
+      eventType === 'regular'
+        ? {
+            id: tmpId(),
+            name: newEventName.trim(),
+            event_type: 'regular',
+            periodicity: newEventPeriodicity,
+            start_date: newEventDate,
+          }
+        : {
+            id: tmpId(),
+            name: newEventName.trim(),
+            event_type: 'irregular',
+          };
 
-    setExistingEvents(prev => [...prev, newEvent]);
+    setExistingEvents((prev) => [...prev, newEvent]);
     setNewEventName('');
     setNewEventDate('');
     setScheduleOpen(false);
-  }, [eventType, newEventName, newEventPeriodicity, newEventDate]);
+  }, [
+    eventType,
+    newEventName,
+    newEventPeriodicity,
+    newEventDate,
+  ]);
 
-  // Правка и удаление работают только для локальных (ещё не сохранённых) событий:
-  // в api.js нет updateEvent / deleteEvent.
-  const handleUpdateEventField = useCallback((eventId, field, value) => {
-    if (!isTmp(eventId)) return;
-    const event = existingEvents.find(e => e.id === eventId);
-    if (event) {
-      event[field] = value;
-      setExistingEvents([...existingEvents]);
-    }
-  }, [existingEvents]);
-
-  const removeEventEverywhere = useCallback((eventId, tree = elements) => {
-    tree.forEach((element) => {
-      element.events = element.events.filter(e => e.id !== eventId);
-      if (element.children && element.children.length) {
-        removeEventEverywhere(eventId, element.children);
+  // Изменяет поле локального события
+  const handleUpdateEventField = useCallback(
+    (eventId, field, value) => {
+      if (!isTmp(eventId)) {
+        return;
       }
-    });
-  }, [elements]);
 
-  const handleDeleteEvent = useCallback((eventId) => {
-    if (!isTmp(eventId)) return;
-    removeEventEverywhere(eventId);
-    setElements([...elements]);
-    setExistingEvents(existingEvents.filter(e => e.id !== eventId));
-  }, [elements, existingEvents, removeEventEverywhere]);
+      const event = existingEvents.find(
+        (item) => item.id === eventId
+      );
 
-  const toggleEventSelection = useCallback((eventId) => {
-    if (!selectedElementId) return;
-
-    const element = findElement(selectedElementId);
-    if (!element) return;
-
-    const eventIndex = element.events.findIndex(e => e.id === eventId);
-
-    if (eventIndex === -1) {
-      const event = existingEvents.find(e => e.id === eventId);
       if (event) {
-        element.events.push(event);
+        event[field] = value;
+        setExistingEvents([...existingEvents]);
       }
-    } else {
-      element.events.splice(eventIndex, 1);
-    }
+    },
+    [existingEvents]
+  );
 
-    setElements([...elements]);
-  }, [selectedElementId, findElement, existingEvents, elements]);
+  // Удаляет событие из всех элементов дерева
+  const removeEventEverywhere = useCallback(
+    (eventId, tree = elements) => {
+      tree.forEach((element) => {
+        element.events = element.events.filter(
+          (event) => event.id !== eventId
+        );
 
-  // ============ ССЫЛКИ ============
+        if (
+          element.children &&
+          element.children.length
+        ) {
+          removeEventEverywhere(
+            eventId,
+            element.children
+          );
+        }
+      });
+    },
+    [elements]
+  );
 
-  const handleLinkChange = useCallback((index, value) => {
-    setLinks((prev) => {
-      const newLinks = [...prev];
-      newLinks[index] = value;
-      return newLinks;
-    });
-  }, []);
+  // Удаляет локальное событие и все его привязки
+  const handleDeleteEvent = useCallback(
+    (eventId) => {
+      if (!isTmp(eventId)) {
+        return;
+      }
 
+      removeEventEverywhere(eventId);
+      setElements([...elements]);
+
+      setExistingEvents(
+        existingEvents.filter(
+          (event) => event.id !== eventId
+        )
+      );
+    },
+    [
+      elements,
+      existingEvents,
+      removeEventEverywhere,
+    ]
+  );
+
+  // Переключает привязку события к выбранному элементу
+  const toggleEventSelection = useCallback(
+    (eventId) => {
+      if (!selectedElementId) {
+        return;
+      }
+
+      const element = findElement(selectedElementId);
+
+      if (!element) {
+        return;
+      }
+
+      const eventIndex = element.events.findIndex(
+        (event) => event.id === eventId
+      );
+
+      if (eventIndex === -1) {
+        const event = existingEvents.find(
+          (item) => item.id === eventId
+        );
+
+        if (event) {
+          element.events.push(event);
+        }
+      } else {
+        element.events.splice(eventIndex, 1);
+      }
+
+      setElements([...elements]);
+    },
+    [
+      selectedElementId,
+      findElement,
+      existingEvents,
+      elements,
+    ]
+  );
+
+  // Изменяет ссылку страницы
+  const handleLinkChange = useCallback(
+    (index, value) => {
+      setLinks((prev) => {
+        const newLinks = [...prev];
+        newLinks[index] = value;
+        return newLinks;
+      });
+    },
+    []
+  );
+
+  // Добавляет поле для новой ссылки
   const handleAddLink = useCallback(() => {
     setLinks((prev) => [...prev, '']);
   }, []);
 
+  // Удаляет ссылку из списка
   const handleRemoveLink = useCallback((index) => {
     setLinks((prev) => {
       if (prev.length === 1) {
         return [''];
       }
+
       return prev.filter((_, i) => i !== index);
     });
   }, []);
 
-  // ============ СОХРАНЕНИЕ В БД ============
+  // Сохраняет элементы, события и их связи в базе данных
+  const persistAll = useCallback(
+    async (pageId) => {
+      const eventLinks = new Map();
 
-  // Порядок: элементы по дереву (родитель раньше детей) + изменения привязок событий ->
-  // новые события (POST /events { event, element_ids }) -> удаление элементов, убранных в интерфейсе.
-  // Всё, что уже сделано, запоминается (idMapRef, originalRef), поэтому при повторной попытке дублей не будет.
-  const persistAll = useCallback(async (pageId) => {
-    const eventLinks = new Map(); // tmp id нового события -> [настоящие id элементов]
+      // Сохраняет дерево элементов начиная с родительских элементов
+      const saveTree = async (tree, parentId) => {
+        for (const el of tree) {
+          const isExisting = !isTmp(el.id);
 
-    // 1. Элементы (рекурсивно) и привязки уже существующих событий
-    const saveTree = async (tree, parentId) => {
-      for (const el of tree) {
-        const isExisting = !isTmp(el.id); // элемент уже был в БД
-        let realId = isExisting ? el.id : idMapRef.current.get(el.id);
-        const createdNow = !realId;
+          let realId = isExisting
+            ? el.id
+            : idMapRef.current.get(el.id);
 
-        if (createdNow) {
-          const { data } = await createElement(pageId, {
-            name: el.name,
-            parent_element_id: parentId, // настоящий id родителя
+          const createdNow = !realId;
+
+          if (createdNow) {
+            const { data } = await createElement(
+              pageId,
+              {
+                name: el.name,
+                parent_element_id: parentId,
+              }
+            );
+
+            realId = data.id;
+            idMapRef.current.set(
+              el.id,
+              realId
+            );
+          }
+
+          const orig = isExisting
+            ? originalRef.current.get(el.id)
+            : null;
+
+          const currentIds = new Set(
+            (el.events || []).map(
+              (event) => event.id
+            )
+          );
+
+          for (const ev of el.events || []) {
+            if (isTmp(ev.id)) {
+              if (idMapRef.current.has(ev.id)) {
+                continue;
+              }
+
+              if (!eventLinks.has(ev.id)) {
+                eventLinks.set(ev.id, []);
+              }
+
+              eventLinks
+                .get(ev.id)
+                .push(realId);
+            } else if (
+              createdNow ||
+              (orig?.eventIds &&
+                !orig.eventIds.has(ev.id))
+            ) {
+              await attachEventToElement(
+                realId,
+                ev.id
+              );
+
+              orig?.eventIds?.add(ev.id);
+            }
+          }
+
+          if (orig?.eventIds) {
+            for (const evId of [...orig.eventIds]) {
+              if (!currentIds.has(evId)) {
+                await deleteEventElement(
+                  realId,
+                  evId
+                );
+
+                orig.eventIds.delete(evId);
+              }
+            }
+          }
+
+          if (
+            el.children &&
+            el.children.length
+          ) {
+            await saveTree(
+              el.children,
+              realId
+            );
+          }
+        }
+      };
+
+      await saveTree(elements, null);
+
+      const pending = existingEvents.filter(
+        (event) =>
+          isTmp(event.id) &&
+          eventLinks.has(event.id)
+      );
+
+      const results = await Promise.allSettled(
+        pending.map(async (event) => {
+          const eventPayload =
+            event.event_type === 'regular'
+              ? {
+                  project_id: Number(projectId),
+                  name: event.name,
+                  event_type: 'regular',
+                  periodicity:
+                    (event.periodicity || '')
+                      .toLowerCase() || null,
+                  start_date:
+                    event.start_date || null,
+                  topic_id: null,
+                }
+              : {
+                  project_id: Number(projectId),
+                  name: event.name,
+                  event_type: 'irregular',
+                  periodicity: null,
+                  start_date: null,
+                  topic_id: null,
+                };
+
+          const { data } = await createEvent({
+            event: eventPayload,
+            element_ids:
+              eventLinks.get(event.id),
           });
-          realId = data.id;
-          idMapRef.current.set(el.id, realId);
-        }
 
-        // привязки элемента на момент открытия страницы (null, если не удалось загрузить)
-        const orig = isExisting ? originalRef.current.get(el.id) : null;
-        const currentIds = new Set((el.events || []).map((e) => e.id));
+          idMapRef.current.set(
+            event.id,
+            data?.id ?? true
+          );
+        })
+      );
 
-        for (const ev of el.events || []) {
-          if (isTmp(ev.id)) {
-            // новое событие: запоминаем, к каким элементам его привязать
-            if (idMapRef.current.has(ev.id)) continue; // уже создано ранее
-            if (!eventLinks.has(ev.id)) eventLinks.set(ev.id, []);
-            eventLinks.get(ev.id).push(realId);
-          } else if (createdNow || (orig?.eventIds && !orig.eventIds.has(ev.id))) {
-            // событие уже есть в БД, но к этому элементу оно не было привязано
-            await attachEventToElement(realId, ev.id);
-            orig?.eventIds?.add(ev.id);
-          }
-        }
+      const failed = results.find(
+        (result) => result.status === 'rejected'
+      );
 
-        // привязки, которые сняли галочкой
-        if (orig?.eventIds) {
-          for (const evId of [...orig.eventIds]) {
-            if (!currentIds.has(evId)) {
-              await deleteEventElement(realId, evId);
-              orig.eventIds.delete(evId);
-            }
-          }
-        }
-
-        if (el.children && el.children.length) {
-          await saveTree(el.children, realId);
-        }
+      if (failed) {
+        throw failed.reason;
       }
-    };
 
-    await saveTree(elements, null);
+      const presentIds = new Set();
 
-    // 2. Новые события вместе с привязкой к элементам (запросы независимы, шлём параллельно).
-    // События, не привязанные ни к одному элементу, не сохраняются.
-    const pending = existingEvents.filter((ev) => isTmp(ev.id) && eventLinks.has(ev.id));
+      // Собирает идентификаторы элементов, которые остались в интерфейсе
+      const collectIds = (nodes) => {
+        nodes.forEach((node) => {
+          if (!isTmp(node.id)) {
+            presentIds.add(node.id);
+          }
 
-    const results = await Promise.allSettled(
-      pending.map(async (ev) => {
-        const eventPayload = ev.event_type === 'regular'
-          ? {
-              project_id: Number(projectId),
-              name: ev.name,
-              event_type: 'regular',
-              periodicity: (ev.periodicity || '').toLowerCase() || null, // 'Ежегодно' -> 'ежегодно'
-              start_date: ev.start_date || null,
-              topic_id: null,
-            }
-          : {
-              project_id: Number(projectId),
-              name: ev.name,
-              event_type: 'irregular',
-              periodicity: null,
-              start_date: null,
-              topic_id: null,
-            };
-
-        const { data } = await createEvent({
-          event: eventPayload,
-          element_ids: eventLinks.get(ev.id),
+          collectIds(node.children || []);
         });
-        idMapRef.current.set(ev.id, data?.id ?? true);
-      })
-    );
+      };
 
-    const failed = results.find((r) => r.status === 'rejected');
-    if (failed) throw failed.reason;
+      collectIds(elements);
 
-    // 3. Удаляем элементы, которые убрали в интерфейсе (только те, что уже были в БД).
-    // Идём от самых вложенных к корневым, чтобы не зависеть от каскадного удаления на бэкенде.
-    const presentIds = new Set();
-    const collectIds = (nodes) => {
-      nodes.forEach((n) => {
-        if (!isTmp(n.id)) presentIds.add(n.id);
-        collectIds(n.children || []);
-      });
-    };
-    collectIds(elements);
+      const removed = [
+        ...originalRef.current.entries(),
+      ]
+        .filter(([id]) => !presentIds.has(id))
+        .sort(
+          (a, b) => b[1].depth - a[1].depth
+        );
 
-    const removed = [...originalRef.current.entries()]
-      .filter(([id]) => !presentIds.has(id))
-      .sort((a, b) => b[1].depth - a[1].depth);
+      for (const [id] of removed) {
+        try {
+          await deleteElement(id);
+        } catch (err) {
+          if (err.response?.status !== 404) {
+            throw err;
+          }
+        }
 
-    for (const [id] of removed) {
-      try {
-        await deleteElement(id);
-      } catch (err) {
-        if (err.response?.status !== 404) throw err; // уже удалён — не считаем ошибкой
+        originalRef.current.delete(id);
       }
-      originalRef.current.delete(id);
-    }
-  }, [elements, existingEvents, projectId]);
+    },
+    [elements, existingEvents, projectId]
+  );
 
+  // Сохраняет страницу и все связанные с ней данные
   const handleSave = useCallback(async () => {
-    // синхронная проверка через ref — исключает двойной сабмит от быстрых
-    // повторных кликов, в отличие от проверки по state (isSaving),
-    // которая обновляется асинхронно и не успевает сработать
-    if (isSavingRef.current) return;
+    if (isSavingRef.current) {
+      return;
+    }
 
     if (!pageTitle.trim()) {
       setActiveStep(0);
@@ -652,123 +969,212 @@ const AddPageModal = ({
 
     isSavingRef.current = true;
     setIsSaving(true);
+
     try {
       const pageData = {
         title: pageTitle,
-        links: links.filter((url) => url.trim()).map((url) => ({ url: url.trim() })),
+        links: links
+          .filter((url) => url.trim())
+          .map((url) => ({
+            url: url.trim(),
+          })),
         project_id: Number(projectId),
         parent_page_id: null,
         sort_order: 0,
       };
 
-      let pageId = editingPage ? editingPage.id : pageIdRef.current;
+      let pageId = editingPage
+        ? editingPage.id
+        : pageIdRef.current;
 
       if (editingPage) {
-        await onUpdatePage(editingPage.id, pageData);
+        await onUpdatePage(
+          editingPage.id,
+          pageData
+        );
       } else if (!pageId) {
-        const created = await onSavePage(projectId, pageData);
-        // родитель может вернуть либо res.data, либо весь ответ axios
-        pageId = created?.id ?? created?.data?.id;
+        const created = await onSavePage(
+          projectId,
+          pageData
+        );
+
+        pageId =
+          created?.id ??
+          created?.data?.id;
+
         pageIdRef.current = pageId;
       }
 
       if (!pageId) {
-        throw new Error('Бэкенд не вернул id страницы');
+        throw new Error(
+          'Бэкенд не вернул id страницы'
+        );
       }
 
       await persistAll(pageId);
 
-      // все запросы выполнены — закрываем сразу; onClose(true) в родителе должен обновить список страниц
       onClose(true);
-
     } catch (error) {
-      console.error('Ошибка сохранения:', error);
-      console.log('Ответ сервера:', JSON.stringify(error.response?.data, null, 2));
-      console.log('Отправлено:', error.config?.data);
+      const detail =
+        error.response?.data?.detail;
 
-      // показываем причину прямо в плашке (для 422 это detail от FastAPI)
-      const detail = error.response?.data?.detail;
       setSnackbar({
         open: true,
         message: detail
-          ? `Ошибка: ${typeof detail === 'string' ? detail : JSON.stringify(detail)}`
+          ? `Ошибка: ${
+              typeof detail === 'string'
+                ? detail
+                : JSON.stringify(detail)
+            }`
           : 'Ошибка при сохранении страницы',
-        severity: 'error'
+        severity: 'error',
       });
     } finally {
       setIsSaving(false);
       isSavingRef.current = false;
     }
-  }, [pageTitle, links, elements, editingPage, projectId, onSavePage, onUpdatePage, onClose, persistAll]);
+  }, [
+    pageTitle,
+    links,
+    elements,
+    editingPage,
+    projectId,
+    onSavePage,
+    onUpdatePage,
+    onClose,
+    persistAll,
+  ]);
 
-  const renderElementTree = (tree = elements, level = 0, showActions = true) => {
-    return tree.map(element => {
-      const hasChildren = element.children && element.children.length > 0;
-      const isExpanded = expandedElements.has(element.id);
-      // выделение и выбор элемента нужны только на шаге 3 (там showActions = false)
-      const isSelected = !showActions && selectedElementId === element.id;
+  // Отображает дерево элементов
+  const renderElementTree = (
+    tree = elements,
+    level = 0,
+    showActions = true
+  ) => {
+    return tree.map((element) => {
+      const hasChildren =
+        element.children &&
+        element.children.length > 0;
+
+      const isExpanded =
+        expandedElements.has(element.id);
+
+      const isSelected =
+        !showActions &&
+        selectedElementId === element.id;
 
       return (
-        <div key={element.id} style={{ marginLeft: `${level * 20}px` }} className="mb-1.5">
+        <div
+          key={element.id}
+          style={{
+            marginLeft: `${level * 20}px`,
+          }}
+          className="mb-1.5"
+        >
           <div
-            className={`flex items-center p-2 rounded-lg gap-2 transition-all ${showActions ? '' : 'cursor-pointer'}`}
+            className={`flex items-center p-2 rounded-lg gap-2 transition-all ${
+              showActions ? '' : 'cursor-pointer'
+            }`}
             style={{
-              backgroundColor: isSelected ? colors.blue : colors.white,
-              border: isSelected ? `2px solid ${colors.primary}` : `1px solid ${colors.lightGray}`,
+              backgroundColor: isSelected
+                ? colors.blue
+                : colors.white,
+              border: isSelected
+                ? `2px solid ${colors.primary}`
+                : `1px solid ${colors.lightGray}`,
             }}
             onClick={() => {
-              if (!showActions) setSelectedElementId(element.id);
+              if (!showActions) {
+                setSelectedElementId(
+                  element.id
+                );
+              }
             }}
           >
             {hasChildren && (
               <button
                 onClick={(e) => {
                   e.stopPropagation();
-                  setExpandedElements(prev => {
+
+                  setExpandedElements((prev) => {
                     const newSet = new Set(prev);
+
                     if (isExpanded) {
                       newSet.delete(element.id);
                     } else {
                       newSet.add(element.id);
                     }
+
                     return newSet;
                   });
                 }}
                 className="bg-transparent border-none cursor-pointer p-0.5 flex items-center"
               >
-                {isExpanded ?
-                  <ChevronDown size={16} style={{ color: colors.primary }} /> :
-                  <ChevronRight size={16} style={{ color: colors.primary }} />
-                }
+                {isExpanded ? (
+                  <ChevronDown
+                    size={16}
+                    style={{
+                      color: colors.primary,
+                    }}
+                  />
+                ) : (
+                  <ChevronRight
+                    size={16}
+                    style={{
+                      color: colors.primary,
+                    }}
+                  />
+                )}
               </button>
             )}
 
-            <span className="text-base" style={{
-              color: colors.primary,
-              fontWeight: isSelected ? '600' : '400'
-            }}>
+            <span
+              className="text-base"
+              style={{
+                color: colors.primary,
+                fontWeight: isSelected
+                  ? '600'
+                  : '400',
+              }}
+            >
               {element.name}
             </span>
 
-            {element.events && element.events.length > 0 && (
-              <span className="px-2.5 py-0.5 rounded-full text-xs ml-auto" style={{
-                backgroundColor: colors.primary,
-                color: colors.white,
-              }}>
-                {element.events.length} событий
-              </span>
-            )}
+            {element.events &&
+              element.events.length > 0 && (
+                <span
+                  className="px-2.5 py-0.5 rounded-full text-xs ml-auto"
+                  style={{
+                    backgroundColor:
+                      colors.primary,
+                    color: colors.white,
+                  }}
+                >
+                  {element.events.length} событий
+                </span>
+              )}
 
             {showActions && (
               <button
                 onClick={(e) => {
                   e.stopPropagation();
-                  setAddingSubElementId(element.id);
+
+                  setAddingSubElementId(
+                    element.id
+                  );
                   setSubElementName('');
-                  setExpandedElements(prev => new Set(prev).add(element.id));
+
+                  setExpandedElements(
+                    (prev) =>
+                      new Set(
+                        prev
+                      ).add(element.id)
+                  );
                 }}
                 className="bg-transparent border-none cursor-pointer p-1"
-                style={{ color: colors.primary }}
+                style={{
+                  color: colors.primary,
+                }}
               >
                 <Plus size={16} />
               </button>
@@ -778,136 +1184,239 @@ const AddPageModal = ({
               <button
                 onClick={(e) => {
                   e.stopPropagation();
-                  if (window.confirm(`Удалить элемент "${element.name}"?`)) {
-                    deleteElementFromTree(element.id);
+
+                  if (
+                    window.confirm(
+                      `Удалить элемент "${element.name}"?`
+                    )
+                  ) {
+                    deleteElementFromTree(
+                      element.id
+                    );
                   }
                 }}
                 className="bg-transparent border-none cursor-pointer p-1"
-                style={{ color: colors.error }}
+                style={{
+                  color: colors.error,
+                }}
               >
                 <Trash2 size={16} />
               </button>
             )}
           </div>
 
-          {showActions && addingSubElementId === element.id && (
-            <div style={{ marginLeft: '20px' }} className="flex items-center gap-2 mt-1.5">
-              <input
-                type="text"
-                autoFocus
-                value={subElementName}
-                onChange={(e) => setSubElementName(e.target.value)}
-                onClick={(e) => e.stopPropagation()}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    if (subElementName.trim()) {
-                      addSubElement(element.id, subElementName.trim());
-                    }
-                    setAddingSubElementId(null);
-                    setSubElementName('');
-                  } else if (e.key === 'Escape') {
-                    setAddingSubElementId(null);
-                    setSubElementName('');
-                  }
-                }}
-                placeholder="Название подэлемента"
-                className="flex-1 px-3 py-2 rounded-lg text-sm outline-none transition-colors bg-white"
+          {showActions &&
+            addingSubElementId ===
+              element.id && (
+              <div
                 style={{
-                  border: `1px solid ${colors.primary}`,
-                  color: colors.black,
+                  marginLeft: '20px',
                 }}
-              />
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  if (subElementName.trim()) {
-                    addSubElement(element.id, subElementName.trim());
+                className="flex items-center gap-2 mt-1.5"
+              >
+                <input
+                  type="text"
+                  autoFocus
+                  value={subElementName}
+                  onChange={(e) =>
+                    setSubElementName(
+                      e.target.value
+                    )
                   }
-                  setAddingSubElementId(null);
-                  setSubElementName('');
-                }}
-                className="border-none rounded-lg cursor-pointer font-medium p-2"
-                style={{ backgroundColor: colors.primary, color: colors.white }}
-              >
-                <Plus size={16} />
-              </button>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setAddingSubElementId(null);
-                  setSubElementName('');
-                }}
-                className="bg-transparent border-none cursor-pointer p-1"
-                style={{ color: colors.secondaryText }}
-              >
-                <X size={16} />
-              </button>
-            </div>
-          )}
+                  onClick={(e) =>
+                    e.stopPropagation()
+                  }
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      if (
+                        subElementName.trim()
+                      ) {
+                        addSubElement(
+                          element.id,
+                          subElementName.trim()
+                        );
+                      }
 
-          {hasChildren && isExpanded && (
-            <div className="mt-1">
-              {renderElementTree(element.children, level + 1, showActions)}
-            </div>
-          )}
+                      setAddingSubElementId(
+                        null
+                      );
+                      setSubElementName('');
+                    } else if (
+                      e.key === 'Escape'
+                    ) {
+                      setAddingSubElementId(
+                        null
+                      );
+                      setSubElementName('');
+                    }
+                  }}
+                  placeholder="Название подэлемента"
+                  className="flex-1 px-3 py-2 rounded-lg text-sm outline-none transition-colors bg-white"
+                  style={{
+                    border: `1px solid ${colors.primary}`,
+                    color: colors.black,
+                  }}
+                />
+
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+
+                    if (
+                      subElementName.trim()
+                    ) {
+                      addSubElement(
+                        element.id,
+                        subElementName.trim()
+                      );
+                    }
+
+                    setAddingSubElementId(
+                      null
+                    );
+                    setSubElementName('');
+                  }}
+                  className="border-none rounded-lg cursor-pointer font-medium p-2"
+                  style={{
+                    backgroundColor:
+                      colors.primary,
+                    color: colors.white,
+                  }}
+                >
+                  <Plus size={16} />
+                </button>
+
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+
+                    setAddingSubElementId(
+                      null
+                    );
+                    setSubElementName('');
+                  }}
+                  className="bg-transparent border-none cursor-pointer p-1"
+                  style={{
+                    color:
+                      colors.secondaryText,
+                  }}
+                >
+                  <X size={16} />
+                </button>
+              </div>
+            )}
+
+          {hasChildren &&
+            isExpanded && (
+              <div className="mt-1">
+                {renderElementTree(
+                  element.children,
+                  level + 1,
+                  showActions
+                )}
+              </div>
+            )}
         </div>
       );
     });
   };
 
-  // ============ РЕНДЕР ШАГА 1 ============
-
+  // Отображает первый шаг с названием и ссылками
   const renderStep1 = () => {
     return (
       <div className="flex flex-col min-h-[400px]">
-        <h2 className="text-2xl font-semibold text-center mb-8" style={{ color: colors.primary }}>
+        <h2
+          className="text-2xl font-semibold text-center mb-8"
+          style={{
+            color: colors.primary,
+          }}
+        >
           Добавление страницы
         </h2>
 
         <div className="mb-6">
-          <label className="block text-base font-medium mb-2" style={{ color: colors.black }}>
+          <label
+            className="block text-base font-medium mb-2"
+            style={{
+              color: colors.black,
+            }}
+          >
             Введите название страницы:
           </label>
+
           <input
             type="text"
             value={pageTitle}
-            onChange={(e) => setPageTitle(e.target.value)}
+            onChange={(e) =>
+              setPageTitle(e.target.value)
+            }
             placeholder="Пример: Контакты"
             className="w-full px-4 py-3 rounded-lg text-base outline-none transition-colors bg-white"
             style={{
               border: `1px solid ${colors.lightGray}`,
               color: colors.black,
             }}
-            onFocus={(e) => e.target.style.borderColor = colors.primary}
-            onBlur={(e) => e.target.style.borderColor = colors.lightGray}
+            onFocus={(e) =>
+              (e.target.style.borderColor =
+                colors.primary)
+            }
+            onBlur={(e) =>
+              (e.target.style.borderColor =
+                colors.lightGray)
+            }
           />
         </div>
 
         <div className="mb-4">
-          <label className="block text-base font-medium mb-2" style={{ color: colors.black }}>
+          <label
+            className="block text-base font-medium mb-2"
+            style={{
+              color: colors.black,
+            }}
+          >
             Введите полную ссылку страницы:
           </label>
 
           {links.map((link, index) => (
-            <div key={index} className="flex items-center gap-2 mb-2">
+            <div
+              key={index}
+              className="flex items-center gap-2 mb-2"
+            >
               <input
                 type="text"
                 value={link}
-                onChange={(e) => handleLinkChange(index, e.target.value)}
+                onChange={(e) =>
+                  handleLinkChange(
+                    index,
+                    e.target.value
+                  )
+                }
                 placeholder="Пример: /science/schools"
                 className="flex-1 px-4 py-3 rounded-lg text-base outline-none transition-colors bg-white"
                 style={{
                   border: `1px solid ${colors.lightGray}`,
                   color: colors.black,
                 }}
-                onFocus={(e) => e.target.style.borderColor = colors.primary}
-                onBlur={(e) => e.target.style.borderColor = colors.lightGray}
+                onFocus={(e) =>
+                  (e.target.style.borderColor =
+                    colors.primary)
+                }
+                onBlur={(e) =>
+                  (e.target.style.borderColor =
+                    colors.lightGray)
+                }
               />
+
               {links.length > 1 && (
                 <button
-                  onClick={() => handleRemoveLink(index)}
+                  onClick={() =>
+                    handleRemoveLink(index)
+                  }
                   className="bg-transparent border-none cursor-pointer p-1"
-                  style={{ color: colors.secondaryText }}
+                  style={{
+                    color:
+                      colors.secondaryText,
+                  }}
                 >
                   <X size={18} />
                 </button>
@@ -919,23 +1428,45 @@ const AddPageModal = ({
         <button
           onClick={handleAddLink}
           className="flex items-center gap-2 bg-transparent border-none text-base font-medium p-2 mb-4 self-start transition-opacity hover:opacity-70"
-          style={{ color: colors.primary }}
+          style={{
+            color: colors.primary,
+          }}
         >
           <Plus size={20} />
           Добавить ещё ссылки
         </button>
 
-        <div className="flex justify-between items-center mt-auto pt-6" style={{ borderTop: `1px solid ${colors.lightGray}` }}>
-          <span className="text-sm font-medium" style={{ color: colors.primary }}>1/4</span>
+        <div
+          className="flex justify-between items-center mt-auto pt-6"
+          style={{
+            borderTop: `1px solid ${colors.lightGray}`,
+          }}
+        >
+          <span
+            className="text-sm font-medium"
+            style={{
+              color: colors.primary,
+            }}
+          >
+            1/4
+          </span>
+
           <button
             onClick={() => setActiveStep(1)}
             disabled={!pageTitle.trim()}
             className={`flex items-center gap-2 px-7 py-2.5 rounded-lg text-base font-medium transition-all ${
-              pageTitle.trim() ? 'cursor-pointer' : 'cursor-not-allowed'
+              pageTitle.trim()
+                ? 'cursor-pointer'
+                : 'cursor-not-allowed'
             }`}
             style={{
-              backgroundColor: pageTitle.trim() ? colors.primary : colors.lightGray,
-              color: pageTitle.trim() ? colors.white : colors.secondaryText,
+              backgroundColor:
+                pageTitle.trim()
+                  ? colors.primary
+                  : colors.lightGray,
+              color: pageTitle.trim()
+                ? colors.white
+                : colors.secondaryText,
             }}
           >
             Далее
@@ -946,12 +1477,16 @@ const AddPageModal = ({
     );
   };
 
-  // ============ РЕНДЕР ШАГА 2 ============
-
+  // Отображает второй шаг с созданием элементов
   const renderStep2 = () => {
     return (
       <div className="flex flex-col min-h-[400px]">
-        <h3 className="text-xl font-semibold text-center mb-4" style={{ color: colors.primary }}>
+        <h3
+          className="text-xl font-semibold text-center mb-4"
+          style={{
+            color: colors.primary,
+          }}
+        >
           Добавление элементов
         </h3>
 
@@ -965,11 +1500,19 @@ const AddPageModal = ({
               border: `1px solid ${colors.lightGray}`,
               color: colors.black,
             }}
-            onFocus={(e) => e.target.style.borderColor = colors.primary}
-            onBlur={(e) => e.target.style.borderColor = colors.lightGray}
-            onKeyPress={(e) => {
+            onFocus={(e) =>
+              (e.target.style.borderColor =
+                colors.primary)
+            }
+            onBlur={(e) =>
+              (e.target.style.borderColor =
+                colors.lightGray)
+            }
+            onKeyDown={(e) => {
               if (e.key === 'Enter') {
-                const name = e.target.value;
+                const name =
+                  e.target.value.trim();
+
                 if (name) {
                   addElement(name);
                   e.target.value = '';
@@ -977,17 +1520,29 @@ const AddPageModal = ({
               }
             }}
           />
+
           <button
             onClick={() => {
-              const input = document.getElementById('element-name-input');
-              if (input && input.value) {
-                addElement(input.value);
+              const input =
+                document.getElementById(
+                  'element-name-input'
+                );
+
+              if (
+                input &&
+                input.value.trim()
+              ) {
+                addElement(
+                  input.value.trim()
+                );
+
                 input.value = '';
               }
             }}
             className="border-none rounded-lg cursor-pointer font-medium px-5 py-2.5"
             style={{
-              backgroundColor: colors.primary,
+              backgroundColor:
+                colors.primary,
               color: colors.white,
             }}
           >
@@ -995,41 +1550,74 @@ const AddPageModal = ({
           </button>
         </div>
 
-        <div className="rounded-lg p-4 max-h-[300px] overflow-auto flex-1" style={{
-          border: `1px solid ${colors.lightGray}`,
-          backgroundColor: colors.white,
-        }}>
+        <div
+          className="rounded-lg p-4 max-h-[300px] overflow-auto flex-1"
+          style={{
+            border: `1px solid ${colors.lightGray}`,
+            backgroundColor: colors.white,
+          }}
+        >
           {elements.length === 0 ? (
-            <p className="text-center py-5" style={{ color: colors.secondaryText }}>
-              Нет элементов. Добавьте корневой элемент.
+            <p
+              className="text-center py-5"
+              style={{
+                color:
+                  colors.secondaryText,
+              }}
+            >
+              Нет элементов. Добавьте
+              корневой элемент.
             </p>
           ) : (
             renderElementTree()
           )}
         </div>
 
-        <div className="flex justify-between items-center mt-5 pt-5" style={{ borderTop: `1px solid ${colors.lightGray}` }}>
-          <span className="text-sm font-medium" style={{ color: colors.primary }}>2/4</span>
+        <div
+          className="flex justify-between items-center mt-5 pt-5"
+          style={{
+            borderTop: `1px solid ${colors.lightGray}`,
+          }}
+        >
+          <span
+            className="text-sm font-medium"
+            style={{
+              color: colors.primary,
+            }}
+          >
+            2/4
+          </span>
+
           <div className="flex gap-3">
             <button
               onClick={() => setActiveStep(0)}
               className="px-6 py-2.5 border-none rounded-lg cursor-pointer font-medium"
               style={{
-                backgroundColor: colors.lightGray,
+                backgroundColor:
+                  colors.lightGray,
                 color: colors.black,
               }}
             >
               Назад
             </button>
+
             <button
               onClick={() => setActiveStep(2)}
               disabled={elements.length === 0}
               className={`flex items-center gap-2 px-6 py-2.5 rounded-lg font-medium ${
-                elements.length > 0 ? 'cursor-pointer' : 'cursor-not-allowed'
+                elements.length > 0
+                  ? 'cursor-pointer'
+                  : 'cursor-not-allowed'
               }`}
               style={{
-                backgroundColor: elements.length > 0 ? colors.primary : colors.lightGray,
-                color: elements.length > 0 ? colors.white : colors.secondaryText,
+                backgroundColor:
+                  elements.length > 0
+                    ? colors.primary
+                    : colors.lightGray,
+                color:
+                  elements.length > 0
+                    ? colors.white
+                    : colors.secondaryText,
               }}
             >
               Далее
@@ -1041,63 +1629,124 @@ const AddPageModal = ({
     );
   };
 
-  // ============ РЕНДЕР ШАГА 3 ============
-
+  // Отображает третий шаг с выбором элемента
   const renderStep3 = () => {
     return (
       <div className="flex flex-col min-h-[400px]">
-        <h3 className="text-xl font-semibold text-center mb-4" style={{ color: colors.primary }}>
-          Выбор элемента для работы с событиями
+        <h3
+          className="text-xl font-semibold text-center mb-4"
+          style={{
+            color: colors.primary,
+          }}
+        >
+          Выбор элемента для работы
+          с событиями
         </h3>
 
-        <p className="text-center mb-4" style={{ color: colors.secondaryText }}>
-          Выберите элемент из списка, чтобы управлять его событиями
+        <p
+          className="text-center mb-4"
+          style={{
+            color: colors.secondaryText,
+          }}
+        >
+          Выберите элемент из списка,
+          чтобы управлять его событиями
         </p>
 
-        <div className="rounded-lg p-4 max-h-[300px] overflow-auto flex-1" style={{
-          border: `1px solid ${colors.lightGray}`,
-          backgroundColor: colors.white,
-        }}>
+        <div
+          className="rounded-lg p-4 max-h-[300px] overflow-auto flex-1"
+          style={{
+            border: `1px solid ${colors.lightGray}`,
+            backgroundColor: colors.white,
+          }}
+        >
           {elements.length === 0 ? (
-            <p className="text-center py-5" style={{ color: colors.secondaryText }}>
+            <p
+              className="text-center py-5"
+              style={{
+                color:
+                  colors.secondaryText,
+              }}
+            >
               Нет элементов для выбора
             </p>
           ) : (
-            renderElementTree(elements, 0, false)
+            renderElementTree(
+              elements,
+              0,
+              false
+            )
           )}
         </div>
 
         {selectedElementId && (
-          <div className="mt-3 px-4 py-3 rounded-lg" style={{
-            backgroundColor: colors.blue,
-            border: `1px solid ${colors.primary}`,
-          }}>
-            Выбран элемент: <strong style={{ color: colors.primary }}>{findElement(selectedElementId)?.name}</strong>
+          <div
+            className="mt-3 px-4 py-3 rounded-lg"
+            style={{
+              backgroundColor: colors.blue,
+              border: `1px solid ${colors.primary}`,
+            }}
+          >
+            Выбран элемент:{' '}
+            <strong
+              style={{
+                color: colors.primary,
+              }}
+            >
+              {
+                findElement(
+                  selectedElementId
+                )?.name
+              }
+            </strong>
           </div>
         )}
 
-        <div className="flex justify-between items-center mt-5 pt-5" style={{ borderTop: `1px solid ${colors.lightGray}` }}>
-          <span className="text-sm font-medium" style={{ color: colors.primary }}>3/4</span>
+        <div
+          className="flex justify-between items-center mt-5 pt-5"
+          style={{
+            borderTop: `1px solid ${colors.lightGray}`,
+          }}
+        >
+          <span
+            className="text-sm font-medium"
+            style={{
+              color: colors.primary,
+            }}
+          >
+            3/4
+          </span>
+
           <div className="flex gap-3">
             <button
               onClick={() => setActiveStep(1)}
               className="px-6 py-2.5 border-none rounded-lg cursor-pointer font-medium"
               style={{
-                backgroundColor: colors.lightGray,
+                backgroundColor:
+                  colors.lightGray,
                 color: colors.black,
               }}
             >
               Назад
             </button>
+
             <button
               onClick={() => setActiveStep(3)}
               disabled={!selectedElementId}
               className={`flex items-center gap-2 px-6 py-2.5 rounded-lg font-medium ${
-                selectedElementId ? 'cursor-pointer' : 'cursor-not-allowed'
+                selectedElementId
+                  ? 'cursor-pointer'
+                  : 'cursor-not-allowed'
               }`}
               style={{
-                backgroundColor: selectedElementId ? colors.primary : colors.lightGray,
-                color: selectedElementId ? colors.white : colors.secondaryText,
+                backgroundColor:
+                  selectedElementId
+                    ? colors.primary
+                    : colors.lightGray,
+                color:
+                  selectedElementId
+                    ? colors.white
+                    : colors.secondaryText,
               }}
             >
               Далее
@@ -1109,26 +1758,48 @@ const AddPageModal = ({
     );
   };
 
-  // ============ РЕНДЕР ШАГА 4 ============
-
+  // Отображает четвёртый шаг с созданием и выбором событий
   const renderStep4 = () => {
-    const selectedElement = selectedElementId ? findElement(selectedElementId) : null;
-    const filteredEvents = existingEvents.filter((event) =>
-      event.name.toLowerCase().includes(eventSearch.trim().toLowerCase())
-    );
+    const selectedElement = selectedElementId
+      ? findElement(selectedElementId)
+      : null;
+
+    const filteredEvents =
+      existingEvents.filter((event) =>
+        event.name
+          .toLowerCase()
+          .includes(
+            eventSearch.trim().toLowerCase()
+          )
+      );
 
     return (
       <div className="flex flex-col min-h-[400px]">
         {selectedElement && (
-          <div className="px-4 py-3 rounded-lg mb-4" style={{
-            backgroundColor: colors.blue,
-            border: `1px solid ${colors.primary}`,
-          }}>
-            События для элемента: <strong style={{ color: colors.primary }}>{selectedElement.name}</strong>
+          <div
+            className="px-4 py-3 rounded-lg mb-4"
+            style={{
+              backgroundColor: colors.blue,
+              border: `1px solid ${colors.primary}`,
+            }}
+          >
+            События для элемента:{' '}
+            <strong
+              style={{
+                color: colors.primary,
+              }}
+            >
+              {selectedElement.name}
+            </strong>
           </div>
         )}
 
-        <label className="block text-base font-medium mb-2" style={{ color: colors.black }}>
+        <label
+          className="block text-base font-medium mb-2"
+          style={{
+            color: colors.black,
+          }}
+        >
           Создайте или выберите события:
         </label>
 
@@ -1136,25 +1807,41 @@ const AddPageModal = ({
           <input
             type="text"
             value={newEventName}
-            onChange={(e) => setNewEventName(e.target.value)}
+            onChange={(e) =>
+              setNewEventName(e.target.value)
+            }
             placeholder="Название события"
             className="flex-1 px-4 py-3 rounded-lg text-base outline-none transition-colors bg-white"
             style={{
               border: `1px solid ${colors.lightGray}`,
               color: colors.black,
             }}
-            onFocus={(e) => e.target.style.borderColor = colors.primary}
-            onBlur={(e) => e.target.style.borderColor = colors.lightGray}
-            onKeyPress={(e) => e.key === 'Enter' && handleCreateEvent()}
+            onFocus={(e) =>
+              (e.target.style.borderColor =
+                colors.primary)
+            }
+            onBlur={(e) =>
+              (e.target.style.borderColor =
+                colors.lightGray)
+            }
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                handleCreateEvent();
+              }
+            }}
           />
 
           {eventType === 'regular' && (
             <SchedulePopover
               open={scheduleOpen}
               onOpenChange={setScheduleOpen}
-              periodicity={newEventPeriodicity}
+              periodicity={
+                newEventPeriodicity
+              }
               date={newEventDate}
-              onPeriodicityChange={setNewEventPeriodicity}
+              onPeriodicityChange={
+                setNewEventPeriodicity
+              }
               onDateChange={setNewEventDate}
               options={periodicityOptions}
             />
@@ -1163,7 +1850,11 @@ const AddPageModal = ({
           <button
             onClick={handleCreateEvent}
             className="border-none rounded-lg cursor-pointer font-medium px-4 py-3"
-            style={{ backgroundColor: colors.primary, color: colors.white }}
+            style={{
+              backgroundColor:
+                colors.primary,
+              color: colors.white,
+            }}
           >
             <Plus size={20} />
           </button>
@@ -1171,107 +1862,227 @@ const AddPageModal = ({
 
         <div className="flex gap-2 mb-4">
           <button
-            onClick={() => setEventType('regular')}
+            onClick={() =>
+              setEventType('regular')
+            }
             className="w-9 h-9 rounded-lg border-none cursor-pointer font-semibold"
             style={{
-              backgroundColor: eventType === 'regular' ? colors.primary : colors.lightGray,
-              color: eventType === 'regular' ? colors.white : colors.black,
+              backgroundColor:
+                eventType === 'regular'
+                  ? colors.primary
+                  : colors.lightGray,
+              color:
+                eventType === 'regular'
+                  ? colors.white
+                  : colors.black,
             }}
           >
             Р
           </button>
+
           <button
-            onClick={() => setEventType('irregular')}
+            onClick={() =>
+              setEventType('irregular')
+            }
             className="w-9 h-9 rounded-lg border-none cursor-pointer font-semibold"
             style={{
-              backgroundColor: eventType === 'irregular' ? colors.primary : colors.lightGray,
-              color: eventType === 'irregular' ? colors.white : colors.black,
+              backgroundColor:
+                eventType === 'irregular'
+                  ? colors.primary
+                  : colors.lightGray,
+              color:
+                eventType === 'irregular'
+                  ? colors.white
+                  : colors.black,
             }}
           >
             Н
           </button>
         </div>
 
-        <div className="flex items-center gap-2 px-3 py-2.5 rounded-lg bg-white mb-2" style={{ border: `1px solid ${colors.lightGray}` }}>
-          <Search size={18} style={{ color: colors.secondaryText }} />
+        <div
+          className="flex items-center gap-2 px-3 py-2.5 rounded-lg bg-white mb-2"
+          style={{
+            border: `1px solid ${colors.lightGray}`,
+          }}
+        >
+          <Search
+            size={18}
+            style={{
+              color: colors.secondaryText,
+            }}
+          />
+
           <input
             type="text"
             value={eventSearch}
-            onChange={(e) => setEventSearch(e.target.value)}
+            onChange={(e) =>
+              setEventSearch(e.target.value)
+            }
             placeholder="Поиск.."
             className="flex-1 outline-none border-none bg-transparent text-base"
-            style={{ color: colors.black }}
+            style={{
+              color: colors.black,
+            }}
           />
         </div>
 
-        <div className="rounded-lg p-3 max-h-[260px] overflow-auto flex-1" style={{
-          border: `1px solid ${colors.lightGray}`,
-          backgroundColor: colors.white,
-        }}>
+        <div
+          className="rounded-lg p-3 max-h-[260px] overflow-auto flex-1"
+          style={{
+            border: `1px solid ${colors.lightGray}`,
+            backgroundColor: colors.white,
+          }}
+        >
           {filteredEvents.length === 0 ? (
-            <p className="text-center py-5" style={{ color: colors.secondaryText }}>
+            <p
+              className="text-center py-5"
+              style={{
+                color:
+                  colors.secondaryText,
+              }}
+            >
               Событий не найдено
             </p>
           ) : (
             filteredEvents.map((event) => {
-              const isLinked = !!selectedElement?.events?.some((e) => e.id === event.id);
-              // редактировать и удалять можно только события, созданные в этой модалке
+              const isLinked =
+                !!selectedElement?.events?.some(
+                  (item) =>
+                    item.id === event.id
+                );
+
               const isLocal = isTmp(event.id);
+
               return (
                 <div
                   key={event.id}
                   className="flex items-center gap-2 px-3 py-2.5 rounded-lg mb-2"
-                  style={{ border: `1px solid ${colors.lightGray}`, backgroundColor: colors.white }}
+                  style={{
+                    border: `1px solid ${colors.lightGray}`,
+                    backgroundColor:
+                      colors.white,
+                  }}
                 >
                   <input
                     type="text"
                     value={event.name}
                     readOnly={!isLocal}
-                    onChange={(e) => handleUpdateEventField(event.id, 'name', e.target.value)}
+                    onChange={(e) =>
+                      handleUpdateEventField(
+                        event.id,
+                        'name',
+                        e.target.value
+                      )
+                    }
                     className="flex-1 outline-none border-none bg-transparent text-base"
-                    style={{ color: colors.black }}
+                    style={{
+                      color: colors.black,
+                    }}
                   />
 
                   {isLocal && (
                     <button
-                      onClick={() => handleDeleteEvent(event.id)}
+                      onClick={() =>
+                        handleDeleteEvent(
+                          event.id
+                        )
+                      }
                       className="bg-transparent border-none cursor-pointer p-1"
-                      style={{ color: colors.secondaryText }}
+                      style={{
+                        color:
+                          colors.secondaryText,
+                      }}
                     >
                       <X size={18} />
                     </button>
                   )}
 
                   {isLocal ? (
-                    // событие создано в этой модалке: для регулярного можно править периодичность и дату
-                    event.event_type === 'regular' && (
+                    event.event_type ===
+                      'regular' && (
                       <SchedulePopover
-                        open={openScheduleId === event.id}
-                        onOpenChange={(value) => setOpenScheduleId(value ? event.id : null)}
-                        periodicity={capitalize(event.periodicity)}
-                        date={event.start_date || ''}
-                        onPeriodicityChange={(val) => handleUpdateEventField(event.id, 'periodicity', val)}
-                        onDateChange={(val) => handleUpdateEventField(event.id, 'start_date', val)}
-                        options={['', ...periodicityOptions]}
+                        open={
+                          openScheduleId ===
+                          event.id
+                        }
+                        onOpenChange={(value) =>
+                          setOpenScheduleId(
+                            value
+                              ? event.id
+                              : null
+                          )
+                        }
+                        periodicity={capitalize(
+                          event.periodicity
+                        )}
+                        date={
+                          event.start_date ||
+                          ''
+                        }
+                        onPeriodicityChange={(
+                          value
+                        ) =>
+                          handleUpdateEventField(
+                            event.id,
+                            'periodicity',
+                            value
+                          )
+                        }
+                        onDateChange={(value) =>
+                          handleUpdateEventField(
+                            event.id,
+                            'start_date',
+                            value
+                          )
+                        }
+                        options={[
+                          '',
+                          ...periodicityOptions,
+                        ]}
                         buttonClassName="w-9 h-9"
                       />
                     )
                   ) : (
-                    // событие уже было в БД: только отметка типа
-                    <span className="text-sm whitespace-nowrap flex-shrink-0" style={{ color: colors.secondaryText }}>
-                      {event.event_type === 'regular' ? 'регулярное' : 'нерегулярное'}
+                    <span
+                      className="text-sm whitespace-nowrap flex-shrink-0"
+                      style={{
+                        color:
+                          colors.secondaryText,
+                      }}
+                    >
+                      {event.event_type ===
+                      'regular'
+                        ? 'регулярное'
+                        : 'нерегулярное'}
                     </span>
                   )}
 
                   <button
-                    onClick={() => selectedElementId && toggleEventSelection(event.id)}
-                    disabled={!selectedElementId}
+                    onClick={() =>
+                      selectedElementId &&
+                      toggleEventSelection(
+                        event.id
+                      )
+                    }
+                    disabled={
+                      !selectedElementId
+                    }
                     className="w-6 h-6 rounded flex-shrink-0"
                     style={{
-                      backgroundColor: isLinked ? colors.primary : colors.white,
+                      backgroundColor:
+                        isLinked
+                          ? colors.primary
+                          : colors.white,
                       border: `1px solid ${colors.primary}`,
-                      cursor: selectedElementId ? 'pointer' : 'not-allowed',
-                      opacity: selectedElementId ? 1 : 0.5,
+                      cursor:
+                        selectedElementId
+                          ? 'pointer'
+                          : 'not-allowed',
+                      opacity:
+                        selectedElementId
+                          ? 1
+                          : 0.5,
                     }}
                   />
                 </div>
@@ -1281,36 +2092,77 @@ const AddPageModal = ({
         </div>
 
         {!selectedElementId && (
-          <p className="text-sm mt-2" style={{ color: colors.secondaryText }}>
-            Выберите элемент на предыдущем шаге, чтобы привязывать к нему события
+          <p
+            className="text-sm mt-2"
+            style={{
+              color:
+                colors.secondaryText,
+            }}
+          >
+            Выберите элемент на предыдущем
+            шаге, чтобы привязывать к нему
+            события
           </p>
         )}
 
-        <div className="flex justify-between items-center mt-5 pt-5" style={{ borderTop: `1px solid ${colors.lightGray}` }}>
-          <span className="text-sm font-medium" style={{ color: colors.primary }}>4/4</span>
+        <div
+          className="flex justify-between items-center mt-5 pt-5"
+          style={{
+            borderTop: `1px solid ${colors.lightGray}`,
+          }}
+        >
+          <span
+            className="text-sm font-medium"
+            style={{
+              color: colors.primary,
+            }}
+          >
+            4/4
+          </span>
+
           <div className="flex gap-3">
             <button
               onClick={() => setActiveStep(2)}
               className="px-6 py-2.5 border-none rounded-lg cursor-pointer font-medium"
               style={{
-                backgroundColor: colors.lightGray,
+                backgroundColor:
+                  colors.lightGray,
                 color: colors.black,
               }}
             >
               Назад
             </button>
+
             <button
               onClick={handleSave}
-              disabled={isSaving || elements.length === 0}
+              disabled={
+                isSaving ||
+                elements.length === 0
+              }
               className={`px-6 py-2.5 rounded-lg font-medium ${
-                (isSaving || elements.length === 0) ? 'cursor-not-allowed' : 'cursor-pointer'
+                isSaving ||
+                elements.length === 0
+                  ? 'cursor-not-allowed'
+                  : 'cursor-pointer'
               }`}
               style={{
-                backgroundColor: (isSaving || elements.length === 0) ? colors.lightGray : colors.success,
-                color: (isSaving || elements.length === 0) ? colors.secondaryText : colors.white,
+                backgroundColor:
+                  isSaving ||
+                  elements.length === 0
+                    ? colors.lightGray
+                    : colors.success,
+                color:
+                  isSaving ||
+                  elements.length === 0
+                    ? colors.secondaryText
+                    : colors.white,
               }}
             >
-              {isSaving ? 'Сохранение...' : (editingPage ? 'Обновить страницу' : 'Сохранить страницу')}
+              {isSaving
+                ? 'Сохранение...'
+                : editingPage
+                ? 'Обновить страницу'
+                : 'Сохранить страницу'}
             </button>
           </div>
         </div>
@@ -1318,36 +2170,59 @@ const AddPageModal = ({
     );
   };
 
-  // ============ ОСНОВНОЙ РЕНДЕР ============
-
-  if (!isOpen) return null;
+  if (!isOpen) {
+    return null;
+  }
 
   return (
     <div
       className="fixed inset-0 bg-black/50 flex justify-center items-center z-[9999] p-5"
       onClick={(e) => {
-        if (e.target === e.currentTarget && !isSaving) {
-          if (window.confirm('Закрыть модальное окно? Несохраненные данные будут потеряны.')) {
+        if (
+          e.target === e.currentTarget &&
+          !isSaving
+        ) {
+          if (
+            window.confirm(
+              'Закрыть модальное окно? Несохраненные данные будут потеряны.'
+            )
+          ) {
             onClose(false);
           }
         }
       }}
     >
-      <div className="rounded-2xl p-8 max-w-[600px] w-full max-h-[90vh] overflow-auto relative shadow-2xl" style={{
-        backgroundColor: colors.white,
-      }}>
+      <div
+        className="rounded-2xl p-8 max-w-[600px] w-full max-h-[90vh] overflow-auto relative shadow-2xl"
+        style={{
+          backgroundColor: colors.white,
+        }}
+      >
         <div className="flex justify-end mb-2">
           <button
             onClick={() => {
               if (!isSaving) {
-                if (window.confirm('Закрыть модальное окно? Несохраненные данные будут потеряны.')) {
+                if (
+                  window.confirm(
+                    'Закрыть модальное окно? Несохраненные данные будут потеряны.'
+                  )
+                ) {
                   onClose(false);
                 }
               }
             }}
-            className={`bg-transparent border-none p-1 ${isSaving ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+            className={`bg-transparent border-none p-1 ${
+              isSaving
+                ? 'opacity-50 cursor-not-allowed'
+                : 'cursor-pointer'
+            }`}
           >
-            <X size={24} style={{ color: colors.black }} />
+            <X
+              size={24}
+              style={{
+                color: colors.black,
+              }}
+            />
           </button>
         </div>
 
@@ -1359,24 +2234,39 @@ const AddPageModal = ({
         {snackbar.open && (
           <div
             className={`absolute bottom-8 left-1/2 -translate-x-1/2 px-6 py-3 rounded-lg shadow-lg flex items-center gap-3 min-w-[200px] justify-center ${
-              snackbar.severity === 'success' ? 'text-white' :
-              snackbar.severity === 'error' ? 'text-white' :
-              snackbar.severity === 'warning' ? 'text-black' :
-              'text-white'
+              snackbar.severity === 'warning'
+                ? 'text-black'
+                : 'text-white'
             }`}
             style={{
-              backgroundColor: snackbar.severity === 'success' ? colors.success :
-                              snackbar.severity === 'error' ? colors.error :
-                              snackbar.severity === 'warning' ? '#ffc107' :
-                              '#17a2b8',
+              backgroundColor:
+                snackbar.severity === 'success'
+                  ? colors.success
+                  : snackbar.severity === 'error'
+                  ? colors.error
+                  : snackbar.severity === 'warning'
+                  ? '#ffc107'
+                  : '#17a2b8',
             }}
           >
-            <span>{snackbar.message}</span>
+            <span>
+              {snackbar.message}
+            </span>
+
             <button
-              onClick={() => setSnackbar({ ...snackbar, open: false })}
+              onClick={() =>
+                setSnackbar({
+                  ...snackbar,
+                  open: false,
+                })
+              }
               className="bg-transparent border-none cursor-pointer text-lg px-1"
               style={{
-                color: snackbar.severity === 'warning' ? colors.black : colors.white,
+                color:
+                  snackbar.severity ===
+                  'warning'
+                    ? colors.black
+                    : colors.white,
               }}
             >
               ×

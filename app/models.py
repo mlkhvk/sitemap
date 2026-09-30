@@ -16,10 +16,6 @@ from sqlalchemy.orm import relationship
 
 from app.database import Base
 
-# ============================================================
-# PROJECT
-# ============================================================
-
 
 class Project(Base):
     __tablename__ = "projects"
@@ -56,11 +52,6 @@ class Project(Base):
         cascade="all, delete-orphan",
         passive_deletes=True,
     )
-
-
-# ============================================================
-# PAGE
-# ============================================================
 
 
 class Page(Base):
@@ -102,18 +93,10 @@ class Page(Base):
         nullable=False,
     )
 
-    # -------------------------
-    # PROJECT
-    # -------------------------
-
     project = relationship(
         "Project",
         back_populates="pages",
     )
-
-    # -------------------------
-    # PARENT PAGE
-    # -------------------------
 
     parent = relationship(
         "Page",
@@ -128,10 +111,6 @@ class Page(Base):
         passive_deletes=True,
     )
 
-    # -------------------------
-    # LINKS
-    # -------------------------
-
     links = relationship(
         "PageLink",
         back_populates="page",
@@ -140,10 +119,6 @@ class Page(Base):
         lazy="selectin",
     )
 
-    # -------------------------
-    # ELEMENTS
-    # -------------------------
-
     elements = relationship(
         "Element",
         back_populates="page",
@@ -151,11 +126,6 @@ class Page(Base):
         passive_deletes=True,
         lazy="selectin",
     )
-
-
-# ============================================================
-# PAGE LINK
-# ============================================================
 
 
 class PageLink(Base):
@@ -186,11 +156,6 @@ class PageLink(Base):
         "Page",
         back_populates="links",
     )
-
-
-# ============================================================
-# ELEMENT
-# ============================================================
 
 
 class Element(Base):
@@ -232,18 +197,10 @@ class Element(Base):
         nullable=False,
     )
 
-    # -------------------------
-    # PAGE
-    # -------------------------
-
     page = relationship(
         "Page",
         back_populates="elements",
     )
-
-    # -------------------------
-    # PARENT ELEMENT
-    # -------------------------
 
     parent = relationship(
         "Element",
@@ -258,10 +215,6 @@ class Element(Base):
         passive_deletes=True,
     )
 
-    # ========================================================
-    # ASSOCIATION OBJECT
-    # ========================================================
-
     element_events = relationship(
         "ElementEvent",
         back_populates="element",
@@ -269,21 +222,12 @@ class Element(Base):
         passive_deletes=True,
     )
 
-    # ========================================================
-    # MANY-TO-MANY EVENTS
-    # ========================================================
-
     events = relationship(
         "Event",
         secondary="element_events",
         back_populates="elements",
         viewonly=True,
     )
-
-
-# ============================================================
-# TOPIC
-# ============================================================
 
 
 class Topic(Base):
@@ -320,11 +264,6 @@ class Topic(Base):
         "Event",
         back_populates="topic",
     )
-
-
-# ============================================================
-# EVENT
-# ============================================================
 
 
 class Event(Base):
@@ -411,27 +350,15 @@ class Event(Base):
         nullable=True,
     )
 
-    # -------------------------
-    # PROJECT
-    # -------------------------
-
     project = relationship(
         "Project",
         back_populates="events",
     )
 
-    # -------------------------
-    # TOPIC
-    # -------------------------
-
     topic = relationship(
         "Topic",
         back_populates="events",
     )
-
-    # ========================================================
-    # ASSOCIATION OBJECT
-    # ========================================================
 
     element_events = relationship(
         "ElementEvent",
@@ -440,10 +367,6 @@ class Event(Base):
         passive_deletes=True,
     )
 
-    # ========================================================
-    # MANY-TO-MANY ELEMENTS
-    # ========================================================
-
     elements = relationship(
         "Element",
         secondary="element_events",
@@ -451,21 +374,12 @@ class Event(Base):
         viewonly=True,
     )
 
-    # ========================================================
-    # TASKS
-    # ========================================================
-
     tasks = relationship(
         "EventTask",
         back_populates="event",
         cascade="all, delete-orphan",
         passive_deletes=True,
     )
-
-
-# ============================================================
-# ELEMENT EVENT
-# ============================================================
 
 
 class ElementEvent(Base):
@@ -499,28 +413,15 @@ class ElementEvent(Base):
         nullable=False,
     )
 
-    # -------------------------
-    # ELEMENT
-    # -------------------------
-
     element = relationship(
         "Element",
         back_populates="element_events",
     )
 
-    # -------------------------
-    # EVENT
-    # -------------------------
-
     event = relationship(
         "Event",
         back_populates="element_events",
     )
-
-
-# ============================================================
-# EVENT TASK
-# ============================================================
 
 
 class EventTask(Base):

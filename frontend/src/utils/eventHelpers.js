@@ -1,11 +1,9 @@
-// Определяем, является ли событие нерегулярным.
+// Проверяет, является ли событие нерегулярным
 export const isIrregularEvent = (event) => {
-  // Если backend явно сказал, что событие регулярное
   if (event.is_regular === true) {
     return false;
   }
 
-  // Если backend явно сказал, что событие нерегулярное
   if (event.is_regular === false) {
     return true;
   }
@@ -17,7 +15,6 @@ export const isIrregularEvent = (event) => {
     return event.event_type === 'irregular';
   }
 
-  // Запасной вариант для старых данных
   return (
     (
       event.topic_id !== undefined &&
@@ -27,12 +24,12 @@ export const isIrregularEvent = (event) => {
   );
 };
 
-// Получение названия события.
+// Получает название события
 export const getEventTitle = (event) => {
   return event.title ?? event.name ?? '';
 };
 
-// Получение даты события.
+// Получает дату события
 export const getEventDate = (event) => {
   return (
     event.date ??
@@ -44,7 +41,7 @@ export const getEventDate = (event) => {
   );
 };
 
-// Получение периодичности.
+// Получает периодичность события
 export const getEventRecurrence = (event) => {
   return (
     event.recurrence ??
@@ -55,7 +52,7 @@ export const getEventRecurrence = (event) => {
   );
 };
 
-// Названия периодичности.
+// Названия периодичности
 export const RECURRENCE_LABELS = {
   yearly: 'ежегодно',
   monthly: 'ежемесячно',
@@ -67,7 +64,7 @@ export const RECURRENCE_LABELS = {
   'раз в квартал': 'раз в квартал',
 };
 
-// Русские названия месяцев.
+// Русские названия месяцев
 export const RU_MONTHS_GENITIVE = [
   'января',
   'февраля',
@@ -83,10 +80,7 @@ export const RU_MONTHS_GENITIVE = [
   'декабря',
 ];
 
-// ============================================================
-// DATE HELPERS
-// ============================================================
-
+// Разбирает дату на месяц и день
 export const parseMonthDay = (dateStr) => {
   if (!dateStr) {
     return {
@@ -99,7 +93,6 @@ export const parseMonthDay = (dateStr) => {
     .split('-')
     .map(Number);
 
-  // YYYY-MM-DD
   if (parts.length === 3) {
     return {
       month: parts[1],
@@ -107,7 +100,6 @@ export const parseMonthDay = (dateStr) => {
     };
   }
 
-  // MM-DD
   if (parts.length === 2) {
     return {
       month: parts[0],
@@ -121,6 +113,7 @@ export const parseMonthDay = (dateStr) => {
   };
 };
 
+// Сравнивает даты по месяцу и дню
 export const compareMonthDay = (a, b) => {
   const pa = parseMonthDay(a);
   const pb = parseMonthDay(b);
@@ -131,7 +124,9 @@ export const compareMonthDay = (a, b) => {
   );
 };
 
+// Форматирует дату с русским названием месяца
 export const formatMonthDay = (dateStr) => {
   const { day, month } = parseMonthDay(dateStr);
+
   return `${day} ${RU_MONTHS_GENITIVE[month - 1] || ''}`;
 };

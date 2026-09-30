@@ -54,17 +54,10 @@ import {
   compareMonthDay,
 } from '../utils/eventHelpers';
 
-// ============================================================
-// PROJECT PAGE
-// ============================================================
-
+// Загружает данные выбранного проекта
 function ProjectPage() {
   const { projectId } = useParams();
   const navigate = useNavigate();
-
-  // ============================================================
-  // PROJECT / PAGES STATE
-  // ============================================================
 
   const [project, setProject] = useState(null);
   const [pages, setPages] = useState([]);
@@ -80,10 +73,6 @@ function ProjectPage() {
   const checklistsSectionRef = useRef(null);
   const pdfSectionRef = useRef(null);
 
-  // ============================================================
-  // EVENTS STATE
-  // ============================================================
-
   const [events, setEvents] = useState([]);
   const [topics, setTopics] = useState([]);
 
@@ -96,62 +85,31 @@ function ProjectPage() {
 
   const [isTopicModalOpen, setIsTopicModalOpen] = useState(false);
 
-  // ============================================================
-  // LOAD DATA
-  // ============================================================
-
+  // Загружает проект, страницы, события и темы
   const fetchProjectData = useCallback(async () => {
     try {
       setLoading(true);
 
-      // -------------------------
-      // PROJECTS
-      // -------------------------
-
       const projectsRes = await getProjects();
 
       const foundProject = projectsRes.data.find(
-        (project) =>
-          project.id === Number(projectId)
+        (project) => project.id === Number(projectId)
       );
 
       setProject(foundProject);
 
-      // -------------------------
-      // PAGES
-      // -------------------------
-
       const pagesRes = await getPages(projectId);
 
-      setPages(
-        pagesRes.data || []
-      );
-
-      // -------------------------
-      // EVENTS
-      // -------------------------
+      setPages(pagesRes.data || []);
 
       const eventsRes = await getEvents(projectId);
 
-      setEvents(
-        eventsRes.data || []
-      );
-
-      // -------------------------
-      // TOPICS
-      // -------------------------
+      setEvents(eventsRes.data || []);
 
       const topicsRes = await getTopics(projectId);
 
-      setTopics(
-        topicsRes.data || []
-      );
-
-    } catch (error) {
-      console.error(
-        'Ошибка загрузки данных:',
-        error
-      );
+      setTopics(topicsRes.data || []);
+    } catch {
     } finally {
       setLoading(false);
     }
@@ -161,10 +119,7 @@ function ProjectPage() {
     fetchProjectData();
   }, [fetchProjectData]);
 
-  // ============================================================
-  // PATH NORMALIZATION
-  // ============================================================
-
+  // Нормализует ссылку страницы до единого формата
   const normalizePath = (rawUrl) => {
     if (!rawUrl) {
       return '';
@@ -182,7 +137,7 @@ function ProjectPage() {
             );
 
       path = parsed.pathname;
-    } catch (error) {
+    } catch {
       path = rawUrl;
     }
 
@@ -190,7 +145,6 @@ function ProjectPage() {
       .replace(/\/+/g, '/')
       .toLowerCase();
 
-    // Для корня оставляем "/"
     if (path.length > 1) {
       path = path.replace(/\/+$/, '');
     }
@@ -198,17 +152,14 @@ function ProjectPage() {
     return path || '/';
   };
 
+  // Получает путь первой ссылки страницы
   const getPagePath = (page) => {
-    const firstLink =
-      page.links?.[0]?.url;
+    const firstLink = page.links?.[0]?.url;
 
     return normalizePath(firstLink);
   };
 
-  // ============================================================
-  // CHECK WHETHER PATH IS NESTED
-  // ============================================================
-
+  // Проверяет, является ли один путь вложенным относительно другого
   const isDescendantPath = (
     parentPath,
     childPath
@@ -221,55 +172,20 @@ function ProjectPage() {
       return false;
     }
 
-    // ----------------------------------------------------------
-    // Корень "/"
-    // ----------------------------------------------------------
-    //
-    // Не считаем любой путь автоматически
-    // дочерним корневой страницы.
-    //
-    // "/"       -> не является родителем "/fsdf"
-    // "/"       -> является родителем "/faculty/history"
-    //
-    // То есть вложенными считаем пути,
-    // у которых больше одного сегмента.
-    //
     if (parentPath === '/') {
-      const childSegments =
-        childPath
-          .split('/')
-          .filter(Boolean);
+      const childSegments = childPath
+        .split('/')
+        .filter(Boolean);
 
       return childSegments.length >= 2;
     }
 
-    // ----------------------------------------------------------
-    // Обычный вложенный путь
-    // ----------------------------------------------------------
-    //
-    // /faculty
-    //      ↓
-    // /faculty/history
-    //
-    // /faculty/history
-    //      ↓
-    // /faculty/history/about
-    //
-    // Но:
-    //
-    // /faculty
-    //      X
-    // /faculty-old
-    //
     return childPath.startsWith(
       `${parentPath}/`
     );
   };
 
-  // ============================================================
-  // BUILD PAGE TREE
-  // ============================================================
-
+  // Строит дерево страниц по их ссылкам
   const buildPageTree = (pageList) => {
     const items = pageList.map(
       (page) => ({
@@ -282,8 +198,6 @@ function ProjectPage() {
     const tree = [];
 
     items.forEach((item) => {
-      // Страница без ссылки
-      // остается корневой.
       if (!item._path) {
         tree.push(item);
         return;
@@ -291,68 +205,43 @@ function ProjectPage() {
 
       let bestParent = null;
 
-      items.forEach(
-        (candidate) => {
-          // Нельзя сделать страницу
-          // родителем самой себя.
-          if (
-            candidate === item
-          ) {
-            return;
-          }
-
-          // Нет пути — не можем
-          // определить вложенность.
-          if (
-            !candidate._path
-          ) {
-            return;
-          }
-
-          // Одинаковые пути
-          // не считаем вложенностью.
-          if (
-            candidate._path ===
-            item._path
-          ) {
-            return;
-          }
-
-          const isNested =
-            isDescendantPath(
-              candidate._path,
-              item._path
-            );
-
-          if (!isNested) {
-            return;
-          }
-
-          // Если нашли несколько
-          // возможных родителей,
-          // выбираем ближайшего:
-          //
-          // /faculty
-          // /faculty/history
-          // /faculty/history/about
-          //
-          // Для /faculty/history/about
-          // родителем будет /faculty/history,
-          // а не /faculty.
-          if (
-            !bestParent ||
-            candidate._path.length >
-              bestParent._path.length
-          ) {
-            bestParent = candidate;
-          }
+      items.forEach((candidate) => {
+        if (candidate === item) {
+          return;
         }
-      );
+
+        if (!candidate._path) {
+          return;
+        }
+
+        if (
+          candidate._path ===
+          item._path
+        ) {
+          return;
+        }
+
+        const isNested =
+          isDescendantPath(
+            candidate._path,
+            item._path
+          );
+
+        if (!isNested) {
+          return;
+        }
+
+        if (
+          !bestParent ||
+          candidate._path.length >
+            bestParent._path.length
+        ) {
+          bestParent = candidate;
+        }
+      });
 
       if (bestParent) {
-        bestParent.children.push(
-          item
-        );
+        bestParent.children.push(item);
       } else {
         tree.push(item);
       }
@@ -361,10 +250,7 @@ function ProjectPage() {
     return tree;
   };
 
-  // ============================================================
-  // RENDER SITEMAP
-  // ============================================================
-
+  // Отображает дерево карты сайта
   const renderSitemap = (
     pageList,
     level = 0
@@ -448,17 +334,18 @@ function ProjectPage() {
     );
   };
 
-  // ============================================================
-  // SEARCH
-  // ============================================================
-
+  // Нормализует значение для поиска
   const normalizeSearchValue = (value) => {
     return String(value ?? '')
       .trim()
       .toLowerCase();
   };
 
-  const getEventTopicName = (event, topicList) => {
+  // Получает название темы события
+  const getEventTopicName = (
+    event,
+    topicList
+  ) => {
     return (
       event.topic?.name ??
       topicList.find(
@@ -469,6 +356,7 @@ function ProjectPage() {
     );
   };
 
+  // Формирует варианты даты для поиска
   const getDateSearchValues = (date) => {
     if (!date) {
       return [];
@@ -501,20 +389,32 @@ function ProjectPage() {
       .filter(Boolean);
   };
 
-  const matchesSearchValue = (values, term) => {
-    const normalizedTerm = normalizeSearchValue(term);
+  // Проверяет совпадение значения с поисковым запросом
+  const matchesSearchValue = (
+    values,
+    term
+  ) => {
+    const normalizedTerm =
+      normalizeSearchValue(term);
 
     if (!normalizedTerm) {
       return true;
     }
 
     return values.some((value) =>
-      normalizeSearchValue(value).includes(normalizedTerm)
+      normalizeSearchValue(value).includes(
+        normalizedTerm
+      )
     );
   };
 
-  const matchesRegularSearch = (event, term) => {
-    const normalizedTerm = normalizeSearchValue(term);
+  // Проверяет регулярное событие по поиску
+  const matchesRegularSearch = (
+    event,
+    term
+  ) => {
+    const normalizedTerm =
+      normalizeSearchValue(term);
 
     if (!normalizedTerm) {
       return true;
@@ -522,12 +422,19 @@ function ProjectPage() {
 
     const title = getEventTitle(event);
     const date = getEventDate(event);
-    const recurrence = getEventRecurrence(event);
+    const recurrence =
+      getEventRecurrence(event);
+
     const recurrenceLabel =
-      RECURRENCE_LABELS[recurrence] ?? recurrence ?? '';
+      RECURRENCE_LABELS[recurrence] ??
+      recurrence ??
+      '';
 
     return (
-      matchesSearchValue([title], normalizedTerm) ||
+      matchesSearchValue(
+        [title],
+        normalizedTerm
+      ) ||
       matchesSearchValue(
         getDateSearchValues(date),
         normalizedTerm
@@ -539,22 +446,26 @@ function ProjectPage() {
     );
   };
 
+  // Проверяет нерегулярное событие по поиску
   const matchesIrregularSearch = (
     event,
     term,
     topicList
   ) => {
-    const normalizedTerm = normalizeSearchValue(term);
+    const normalizedTerm =
+      normalizeSearchValue(term);
 
     if (!normalizedTerm) {
       return true;
     }
 
     const title = getEventTitle(event);
-    const topicName = getEventTopicName(
-      event,
-      topicList
-    );
+
+    const topicName =
+      getEventTopicName(
+        event,
+        topicList
+      );
 
     return (
       matchesSearchValue(
@@ -568,18 +479,13 @@ function ProjectPage() {
     );
   };
 
-  // ============================================================
-  // REGULAR EVENTS
-  // ============================================================
-
+  // Формирует группы регулярных событий
   const getRegularGroups =
     useCallback(() => {
       const filtered =
         events.filter(
           (event) =>
-            !isIrregularEvent(
-              event
-            ) &&
+            !isIrregularEvent(event) &&
             matchesRegularSearch(
               event,
               regularSearch
@@ -588,47 +494,35 @@ function ProjectPage() {
 
       const groups = {};
 
-      filtered.forEach(
-        (event) => {
-          const date =
-            getEventDate(event);
+      filtered.forEach((event) => {
+        const date =
+          getEventDate(event);
 
-          const recurrence =
-            getEventRecurrence(
-              event
-            );
+        const recurrence =
+          getEventRecurrence(event);
 
-          // Если у регулярного события
-          // нет даты или регулярности,
-          // не пытаемся его отображать
-          // в списке.
-          if (
-            !date ||
-            !recurrence
-          ) {
-            return;
-          }
-
-          const key =
-            `${date}_${recurrence}`;
-
-          if (!groups[key]) {
-            groups[key] = {
-              date,
-              recurrence,
-              items: [],
-            };
-          }
-
-          groups[key].items.push(
-            event
-          );
+        if (
+          !date ||
+          !recurrence
+        ) {
+          return;
         }
-      );
 
-      return Object.values(
-        groups
-      ).sort(
+        const key =
+          `${date}_${recurrence}`;
+
+        if (!groups[key]) {
+          groups[key] = {
+            date,
+            recurrence,
+            items: [],
+          };
+        }
+
+        groups[key].items.push(event);
+      });
+
+      return Object.values(groups).sort(
         (a, b) =>
           compareMonthDay(
             a.date,
@@ -640,18 +534,13 @@ function ProjectPage() {
       regularSearch,
     ]);
 
-  // ============================================================
-  // IRREGULAR EVENTS
-  // ============================================================
-
+  // Формирует группы нерегулярных событий
   const getIrregularGroups =
     useCallback(() => {
       const filtered =
         events.filter(
           (event) =>
-            isIrregularEvent(
-              event
-            ) &&
+            isIrregularEvent(event) &&
             matchesIrregularSearch(
               event,
               irregularSearch,
@@ -661,39 +550,29 @@ function ProjectPage() {
 
       const groups = {};
 
-      filtered.forEach(
-        (event) => {
-          const key =
-            event.topic_id ??
-            'none';
+      filtered.forEach((event) => {
+        const key =
+          event.topic_id ?? 'none';
 
-          const topicName =
-            getEventTopicName(
-              event,
-              topics
-            ) ||
-            'Без темы';
+        const topicName =
+          getEventTopicName(
+            event,
+            topics
+          ) || 'Без темы';
 
-          if (!groups[key]) {
-            groups[key] = {
-              name: topicName,
-              items: [],
-            };
-          }
-
-          groups[key].items.push(
-            event
-          );
+        if (!groups[key]) {
+          groups[key] = {
+            name: topicName,
+            items: [],
+          };
         }
-      );
 
-      return Object.values(
-        groups
-      ).sort(
+        groups[key].items.push(event);
+      });
+
+      return Object.values(groups).sort(
         (a, b) =>
-          a.name.localeCompare(
-            b.name
-          )
+          a.name.localeCompare(b.name)
       );
     }, [
       events,
@@ -701,19 +580,17 @@ function ProjectPage() {
       topics,
     ]);
 
-  // ============================================================
-  // DELETE EVENT
-  // ============================================================
-
+  // Удаляет событие
   const handleDeleteEvent = async (
     eventId,
     clickEvent
   ) => {
     clickEvent?.stopPropagation();
 
-    const confirmed = window.confirm(
-      'Вы уверены, что хотите удалить это событие?'
-    );
+    const confirmed =
+      window.confirm(
+        'Вы уверены, что хотите удалить это событие?'
+      );
 
     if (!confirmed) {
       return;
@@ -729,11 +606,6 @@ function ProjectPage() {
         )
       );
     } catch (error) {
-      console.error(
-        'Ошибка удаления события:',
-        error
-      );
-
       alert(
         error.message ||
         'Не удалось удалить событие'
@@ -741,230 +613,217 @@ function ProjectPage() {
     }
   };
 
-  // ============================================================
-  // RENDER REGULAR EVENTS
-  // ============================================================
+  // Отображает регулярные события
+  const renderRegularEvents = () => {
+    const groups =
+      getRegularGroups();
 
-  const renderRegularEvents =
-    () => {
-      const groups =
-        getRegularGroups();
-
-      if (
-        groups.length === 0
-      ) {
-        return (
-          <div
-            className="text-center py-6"
-            style={{
-              color:
-                colors.secondaryText,
-            }}
-          >
-            Нет регулярных событий
-          </div>
-        );
-      }
-
-      return groups.map(
-        (group) => {
-          const {
-            day,
-            month,
-          } = parseMonthDay(
-            group.date
-          );
-
-          const monthName =
-            RU_MONTHS_GENITIVE[
-              month - 1
-            ] || '';
-
-          const recurrenceLabel =
-            RECURRENCE_LABELS[
-              group.recurrence
-            ] ||
-            group.recurrence ||
-            '';
-
-          return (
-            <div
-              key={`${group.date}-${group.recurrence}`}
-              className="mb-5"
-            >
-              <div
-                className="text-lg font-semibold"
-                style={{
-                  color:
-                    colors.black,
-                }}
-              >
-                {day}{' '}
-                {monthName}{' '}
-                —{' '}
-                {recurrenceLabel}
-              </div>
-
-              <ul className="mt-1">
-                {group.items.map(
-                  (event) => (
-                    <li
-                      key={event.id}
-                      className="flex items-center gap-2 py-0.5"
-                      style={{
-                        paddingLeft:
-                          '20px',
-                        color:
-                          colors.primary,
-                      }}
-                    >
-                      <span>
-                        •
-                      </span>
-
-                      <span>
-                        {getEventTitle(event)}
-                      </span>
-
-                      <button
-                        type="button"
-                        onClick={(clickEvent) =>
-                          handleOpenEditEvent(
-                            event,
-                            clickEvent
-                          )
-                        }
-                        className="p-1 rounded hover:text-blue-600 transition cursor-pointer"
-                        title="Редактировать событие"
-                      >
-                        <Pencil size={16} />
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={(clickEvent) =>
-                          handleDeleteEvent(
-                            event.id,
-                            clickEvent
-                          )
-                        }
-                        className="p-1 rounded hover:text-red-500 transition cursor-pointer"
-                        title="Удалить событие"
-                      >
-                        <Trash2 size={16} />
-                      </button>
-                    </li>
-                  )
-                )}
-              </ul>
-            </div>
-          );
-        }
+    if (groups.length === 0) {
+      return (
+        <div
+          className="text-center py-6"
+          style={{
+            color:
+              colors.secondaryText,
+          }}
+        >
+          Нет регулярных событий
+        </div>
       );
-    };
+    }
 
-  // ============================================================
-  // RENDER IRREGULAR EVENTS
-  // ============================================================
+    return groups.map((group) => {
+      const {
+        day,
+        month,
+      } = parseMonthDay(
+        group.date
+      );
 
-  const renderIrregularEvents =
-    () => {
-      const groups =
-        getIrregularGroups();
+      const monthName =
+        RU_MONTHS_GENITIVE[
+          month - 1
+        ] || '';
 
-      if (
-        groups.length === 0
-      ) {
-        return (
+      const recurrenceLabel =
+        RECURRENCE_LABELS[
+          group.recurrence
+        ] ||
+        group.recurrence ||
+        '';
+
+      return (
+        <div
+          key={`${group.date}-${group.recurrence}`}
+          className="mb-5"
+        >
           <div
-            className="text-center py-6"
+            className="text-lg font-semibold"
             style={{
               color:
-                colors.secondaryText,
+                colors.black,
             }}
           >
-            Нет нерегулярных событий
+            {day}{' '}
+            {monthName}{' '}
+            —{' '}
+            {recurrenceLabel}
           </div>
-        );
-      }
 
-      return groups.map(
-        (group, index) => (
-          <div
-            key={index}
-            className="mb-4"
-          >
-            <div
-              className="text-lg font-semibold"
-              style={{
-                color:
-                  colors.black,
-              }}
-            >
-              {group.name}:
-            </div>
+          <ul className="mt-1">
+            {group.items.map(
+              (event) => (
+                <li
+                  key={event.id}
+                  className="flex items-center gap-2 py-0.5"
+                  style={{
+                    paddingLeft:
+                      '20px',
+                    color:
+                      colors.primary,
+                  }}
+                >
+                  <span>•</span>
 
-            <ul className="mt-1">
-              {group.items.map(
-                (event) => (
-                  <li
-                    key={event.id}
-                    className="flex items-center gap-2 py-0.5"
-                    style={{
-                      paddingLeft:
-                        '20px',
-                      color:
-                        colors.primary,
-                    }}
+                  <span>
+                    {getEventTitle(event)}
+                  </span>
+
+                  <button
+                    type="button"
+                    onClick={(
+                      clickEvent
+                    ) =>
+                      handleOpenEditEvent(
+                        event,
+                        clickEvent
+                      )
+                    }
+                    className="p-1 rounded hover:text-blue-600 transition cursor-pointer"
+                    title="Редактировать событие"
                   >
-                    <span>
-                      •
-                    </span>
+                    <Pencil size={16} />
+                  </button>
 
-                    <span>
-                      {getEventTitle(event)}
-                    </span>
-
-                    <button
-                      type="button"
-                      onClick={(clickEvent) =>
-                        handleOpenEditEvent(
-                          event,
-                          clickEvent
-                        )
-                      }
-                      className="p-1 rounded hover:text-blue-600 transition cursor-pointer"
-                      title="Редактировать событие"
-                    >
-                      <Pencil size={16} />
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={(clickEvent) =>
-                        handleDeleteEvent(
-                          event.id,
-                          clickEvent
-                        )
-                      }
-                      className="p-1 rounded hover:text-red-500 transition cursor-pointer"
-                      title="Удалить событие"
-                    >
-                      <Trash2 size={16} />
-                    </button>
-                  </li>
-                )
-              )}
-            </ul>
-          </div>
-        )
+                  <button
+                    type="button"
+                    onClick={(
+                      clickEvent
+                    ) =>
+                      handleDeleteEvent(
+                        event.id,
+                        clickEvent
+                      )
+                    }
+                    className="p-1 rounded hover:text-red-500 transition cursor-pointer"
+                    title="Удалить событие"
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                </li>
+              )
+            )}
+          </ul>
+        </div>
       );
-    };
+    });
+  };
 
-  // ============================================================
-  // EVENT MODAL
-  // ============================================================
+  // Отображает нерегулярные события
+  const renderIrregularEvents = () => {
+    const groups =
+      getIrregularGroups();
 
+    if (groups.length === 0) {
+      return (
+        <div
+          className="text-center py-6"
+          style={{
+            color:
+              colors.secondaryText,
+          }}
+        >
+          Нет нерегулярных событий
+        </div>
+      );
+    }
+
+    return groups.map(
+      (group, index) => (
+        <div
+          key={index}
+          className="mb-4"
+        >
+          <div
+            className="text-lg font-semibold"
+            style={{
+              color:
+                colors.black,
+            }}
+          >
+            {group.name}:
+          </div>
+
+          <ul className="mt-1">
+            {group.items.map(
+              (event) => (
+                <li
+                  key={event.id}
+                  className="flex items-center gap-2 py-0.5"
+                  style={{
+                    paddingLeft:
+                      '20px',
+                    color:
+                      colors.primary,
+                  }}
+                >
+                  <span>•</span>
+
+                  <span>
+                    {getEventTitle(event)}
+                  </span>
+
+                  <button
+                    type="button"
+                    onClick={(
+                      clickEvent
+                    ) =>
+                      handleOpenEditEvent(
+                        event,
+                        clickEvent
+                      )
+                    }
+                    className="p-1 rounded hover:text-blue-600 transition cursor-pointer"
+                    title="Редактировать событие"
+                  >
+                    <Pencil size={16} />
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={(
+                      clickEvent
+                    ) =>
+                      handleDeleteEvent(
+                        event.id,
+                        clickEvent
+                      )
+                    }
+                    className="p-1 rounded hover:text-red-500 transition cursor-pointer"
+                    title="Удалить событие"
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                </li>
+              )
+            )}
+          </ul>
+        </div>
+      )
+    );
+  };
+
+  // Открывает редактирование события
   const handleOpenEditEvent = (
     event,
     clickEvent
@@ -972,14 +831,17 @@ function ProjectPage() {
     clickEvent?.stopPropagation();
 
     setEditingEvent(event);
+
     setEventModalMode(
       isIrregularEvent(event)
         ? 'irregular'
         : 'regular'
     );
+
     setIsEventModalOpen(true);
   };
 
+  // Открывает создание события
   const handleOpenCreateEvent = (
     mode
   ) => {
@@ -988,27 +850,24 @@ function ProjectPage() {
     setIsEventModalOpen(true);
   };
 
+  // Закрывает модальное окно события
   const handleEventModalClose =
     async (
       shouldRefresh = false
     ) => {
-      setIsEventModalOpen(
-        false
-      );
+      setIsEventModalOpen(false);
 
       if (shouldRefresh) {
         await fetchProjectData();
       }
     };
 
-  // ============================================================
-  // TOPIC MODAL
-  // ============================================================
-
+  // Закрывает модальное окно тем
   const handleTopicModalClose = () => {
     setIsTopicModalOpen(false);
   };
 
+  // Обновляет список тем и событий
   const handleTopicChanged =
     async () => {
       try {
@@ -1027,46 +886,28 @@ function ProjectPage() {
         setEvents(
           eventsRes.data || []
         );
-      } catch (error) {
-        console.error(
-          'Ошибка обновления тем:',
-          error
-        );
+      } catch {
       }
     };
 
-  // ============================================================
-  // CREATE PAGE
-  // ============================================================
+  // Открывает создание страницы
+  const handleOpenCreate = () => {
+    setEditingPage(null);
+    setIsAddModalOpen(true);
+  };
 
-  const handleOpenCreate =
-    () => {
-      setEditingPage(null);
-      setIsAddModalOpen(true);
-    };
+  // Открывает редактирование страницы
+  const handleEditPage = (page) => {
+    setEditingPage(page);
+    setIsAddModalOpen(true);
+  };
 
-  // ============================================================
-  // EDIT PAGE
-  // ============================================================
-
-  const handleEditPage =
-    (page) => {
-      setEditingPage(page);
-      setIsAddModalOpen(true);
-    };
-
-  // ============================================================
-  // CLOSE PAGE MODAL
-  // ============================================================
-
+  // Закрывает модальное окно страницы
   const handleModalClose =
     async (
       shouldRefresh = false
     ) => {
-      setIsAddModalOpen(
-        false
-      );
-
+      setIsAddModalOpen(false);
       setEditingPage(null);
 
       if (shouldRefresh) {
@@ -1074,10 +915,7 @@ function ProjectPage() {
       }
     };
 
-  // ============================================================
-  // DELETE PAGE
-  // ============================================================
-
+  // Удаляет страницу
   const handleDeletePage =
     async (
       pageId,
@@ -1095,38 +933,21 @@ function ProjectPage() {
       }
 
       try {
-        await deletePage(
-          pageId
-        );
-
+        await deletePage(pageId);
         await fetchProjectData();
-
-      } catch (error) {
-        console.error(
-          'Ошибка удаления страницы:',
-          error
-        );
-
+      } catch {
         alert(
           'Не удалось удалить страницу'
         );
       }
     };
 
-  // ============================================================
-  // SIDEBAR
-  // ============================================================
-
-  const toggleSidebar =
-    () => {
-      setIsSidebarOpen(
-        (prev) => !prev
-      );
-    };
-
-  // ============================================================
-  // LOADING
-  // ============================================================
+  // Открывает или закрывает боковую панель
+  const toggleSidebar = () => {
+    setIsSidebarOpen(
+      (prev) => !prev
+    );
+  };
 
   if (loading) {
     return (
@@ -1139,10 +960,6 @@ function ProjectPage() {
   const pageTree =
     buildPageTree(pages);
 
-  // ============================================================
-  // RENDER
-  // ============================================================
-
   return (
     <div className="min-h-screen p-3">
       <div
@@ -1152,10 +969,6 @@ function ProjectPage() {
             colors.lightGray,
         }}
       >
-        {/* ================================================== */}
-        {/* SIDEBAR */}
-        {/* ================================================== */}
-
         <aside
           className={`fixed left-3 top-3 h-[calc(100vh-1.5rem)] z-10 transition-all duration-300 overflow-hidden ${
             isSidebarOpen
@@ -1219,13 +1032,8 @@ function ProjectPage() {
                     )
                   }
                 >
-                  <span>
-                    •
-                  </span>
-
-                  <span>
-                    Страницы
-                  </span>
+                  <span>•</span>
+                  <span>Страницы</span>
                 </li>
 
                 <li
@@ -1241,13 +1049,8 @@ function ProjectPage() {
                     )
                   }
                 >
-                  <span>
-                    •
-                  </span>
-
-                  <span>
-                    Карта
-                  </span>
+                  <span>•</span>
+                  <span>Карта</span>
                 </li>
 
                 <li
@@ -1263,13 +1066,8 @@ function ProjectPage() {
                     )
                   }
                 >
-                  <span>
-                    •
-                  </span>
-
-                  <span>
-                    События
-                  </span>
+                  <span>•</span>
+                  <span>События</span>
                 </li>
 
                 <li
@@ -1285,15 +1083,12 @@ function ProjectPage() {
                     )
                   }
                 >
-                  <span>
-                    •
-                  </span>
-
-                  <span>
-                    Чеклисты
-                  </span>
+                  <span>•</span>
+                  <span>Чеклисты</span>
                 </li>
-
+                <div className="mt-5 font-semibold text-xl">
+                  Результат
+                </div>
                 <li
                   className="flex items-center gap-2 cursor-pointer hover:opacity-70 transition-opacity"
                   onClick={() =>
@@ -1307,38 +1102,13 @@ function ProjectPage() {
                     )
                   }
                 >
-                  <span>
-                    •
-                  </span>
-
-                  <span>
-                    Генерация PDF
-                  </span>
-                </li>
-              </ul>
-
-              <div className="mt-5 font-semibold text-xl">
-                Результат
-              </div>
-
-              <ul className="mt-2">
-                <li className="flex items-center gap-2 text-xl">
-                  <span>
-                    •
-                  </span>
-
-                  <span>
-                    Генерация PDF
-                  </span>
+                  <span>•</span>
+                  <span>Генерация PDF</span>
                 </li>
               </ul>
             </div>
           </div>
         </aside>
-
-        {/* ================================================== */}
-        {/* CLOSED SIDEBAR */}
-        {/* ================================================== */}
 
         {!isSidebarOpen && (
           <div className="fixed left-3 top-3 z-10 flex items-center gap-2">
@@ -1368,10 +1138,6 @@ function ProjectPage() {
           </div>
         )}
 
-        {/* ================================================== */}
-        {/* HEADER */}
-        {/* ================================================== */}
-
         <div
           className="h-[70px] flex items-center justify-center px-10 border-b w-full"
           style={{
@@ -1392,10 +1158,6 @@ function ProjectPage() {
           </h1>
         </div>
 
-        {/* ================================================== */}
-        {/* MAIN */}
-        {/* ================================================== */}
-
         <main
           className={`flex-1 flex flex-col transition-all duration-300 ${
             isSidebarOpen
@@ -1404,11 +1166,6 @@ function ProjectPage() {
           }`}
         >
           <div className="mt-10">
-
-            {/* ================================================== */}
-            {/* PAGES */}
-            {/* ================================================== */}
-
             <div
               ref={pagesSectionRef}
               className="scroll-mt-24 w-full max-w-[720px] mx-auto mb-7 grid grid-cols-3 items-center"
@@ -1436,10 +1193,6 @@ function ProjectPage() {
                 </button>
               </div>
             </div>
-
-            {/* ================================================== */}
-            {/* PAGES TABLE */}
-            {/* ================================================== */}
 
             <div className="w-full max-w-[720px] mx-auto">
               <table
@@ -1576,9 +1329,7 @@ function ProjectPage() {
                             className="hover:text-blue-600 transition"
                           >
                             <Pencil
-                              size={
-                                18
-                              }
+                              size={18}
                             />
                           </button>
                         </td>
@@ -1602,9 +1353,7 @@ function ProjectPage() {
                             }
                           >
                             <Trash2
-                              size={
-                                18
-                              }
+                              size={18}
                             />
                           </button>
                         </td>
@@ -1631,10 +1380,6 @@ function ProjectPage() {
               </table>
             </div>
 
-            {/* ================================================== */}
-            {/* SITEMAP */}
-            {/* ================================================== */}
-
             <div
               ref={
                 sitemapSectionRef
@@ -1652,8 +1397,7 @@ function ProjectPage() {
                     colors.lightGray,
                 }}
               >
-                {pages.length ===
-                0 ? (
+                {pages.length === 0 ? (
                   <div
                     className="text-center py-8"
                     style={{
@@ -1673,10 +1417,6 @@ function ProjectPage() {
               </div>
             </div>
 
-            {/* ================================================== */}
-            {/* EVENTS */}
-            {/* ================================================== */}
-
             <div
               ref={
                 eventsSectionRef
@@ -1686,10 +1426,6 @@ function ProjectPage() {
               <h2 className="text-2xl font-semibold mb-8 text-center text-black">
                 События
               </h2>
-
-              {/* ================================================== */}
-              {/* REGULAR EVENTS */}
-              {/* ================================================== */}
 
               <div className="mb-12">
                 <h3
@@ -1736,7 +1472,9 @@ function ProjectPage() {
                 <div className="flex gap-3 mb-8">
                   <button
                     onClick={() =>
-                      handleOpenCreateEvent('regular')
+                      handleOpenCreateEvent(
+                        'regular'
+                      )
                     }
                     className="text-white font-semibold px-4 py-1.5 rounded-xl"
                     style={{
@@ -1784,10 +1522,6 @@ function ProjectPage() {
                 </div>
               </div>
 
-              {/* ================================================== */}
-              {/* IRREGULAR EVENTS */}
-              {/* ================================================== */}
-
               <div>
                 <h3
                   className="text-xl font-semibold mb-2"
@@ -1833,7 +1567,9 @@ function ProjectPage() {
                 <div className="flex gap-3 mb-8">
                   <button
                     onClick={() =>
-                      handleOpenCreateEvent('irregular')
+                      handleOpenCreateEvent(
+                        'irregular'
+                      )
                     }
                     className="text-white font-semibold px-4 py-1.5 rounded-xl"
                     style={{
@@ -1899,10 +1635,6 @@ function ProjectPage() {
               </div>
             </div>
 
-            {/* ================================================== */}
-            {/* CHECKLISTS */}
-            {/* ================================================== */}
-
             <div
               ref={checklistsSectionRef}
               className="scroll-mt-24 mt-10 w-full max-w-[720px] mx-auto pb-16"
@@ -1916,10 +1648,6 @@ function ProjectPage() {
                 pages={pages}
               />
             </div>
-
-            {/* ================================================== */}
-            {/* PDF GENERATION */}
-            {/* ================================================== */}
 
             <div
               ref={pdfSectionRef}
@@ -1937,88 +1665,37 @@ function ProjectPage() {
         </main>
       </div>
 
-      {/* ================================================== */}
-      {/* PAGE MODAL */}
-      {/* ================================================== */}
-
       <AddPageModal
-        isOpen={
-          isAddModalOpen
-        }
-        onClose={
-          handleModalClose
-        }
-        projectId={
-          projectId
-        }
-        onSavePage={
-          createPage
-        }
-        onUpdatePage={
-          updatePage
-        }
-        editingPage={
-          editingPage
-        }
+        isOpen={isAddModalOpen}
+        onClose={handleModalClose}
+        projectId={projectId}
+        onSavePage={createPage}
+        onUpdatePage={updatePage}
+        editingPage={editingPage}
       />
-
-      {/* ================================================== */}
-      {/* EVENT MODAL */}
-      {/* ================================================== */}
 
       <EventModal
-        isOpen={
-          isEventModalOpen
-        }
-        onClose={
-          handleEventModalClose
-        }
-        mode={
-          eventModalMode
-        }
-        projectId={
-          projectId
-        }
-        topics={
-          topics
-        }
-        pages={
-          pages
-        }
-        editingEvent={
-          editingEvent
-        }
+        isOpen={isEventModalOpen}
+        onClose={handleEventModalClose}
+        mode={eventModalMode}
+        projectId={projectId}
+        topics={topics}
+        pages={pages}
+        editingEvent={editingEvent}
       />
 
-      {/* ================================================== */}
-      {/* TOPIC MODAL */}
-      {/* ================================================== */}
-
       <TopicModal
-        projectId={
-          projectId
-        }
-        isOpen={
-          isTopicModalOpen
-        }
-        onClose={
-          handleTopicModalClose
-        }
-        topics={
-          topics
-        }
-        onChanged={
-          handleTopicChanged
-        }
+        projectId={projectId}
+        isOpen={isTopicModalOpen}
+        onClose={handleTopicModalClose}
+        topics={topics}
+        onChanged={handleTopicChanged}
       />
     </div>
   );
 }
 
-// ============================================================
-// EVENT MODAL
-// ============================================================
-
+// Управляет модальным окном создания и редактирования события
 function EventModal({
   isOpen,
   onClose,
@@ -2030,17 +1707,23 @@ function EventModal({
 }) {
   const [title, setTitle] = useState('');
   const [date, setDate] = useState('');
-  const [recurrence, setRecurrence] = useState('ежегодно');
-  const [topicId, setTopicId] = useState('');
-  const [saving, setSaving] = useState(false);
+  const [recurrence, setRecurrence] =
+    useState('ежегодно');
+  const [topicId, setTopicId] =
+    useState('');
+  const [saving, setSaving] =
+    useState(false);
 
-  // Страницы и элементы проекта.
-  // Используются и для регулярных, и для нерегулярных событий.
-  const [pageElements, setPageElements] = useState([]);
-  const [elementSearch, setElementSearch] = useState('');
-  const [selectedElementIds, setSelectedElementIds] = useState([]);
-  const [loadingElements, setLoadingElements] = useState(false);
-  const [error, setError] = useState('');
+  const [pageElements, setPageElements] =
+    useState([]);
+  const [elementSearch, setElementSearch] =
+    useState('');
+  const [selectedElementIds, setSelectedElementIds] =
+    useState([]);
+  const [loadingElements, setLoadingElements] =
+    useState(false);
+  const [error, setError] =
+    useState('');
 
   useEffect(() => {
     if (!isOpen) return;
@@ -2080,7 +1763,9 @@ function EventModal({
       setTopicId(
         editingEvent.topic_id !== null &&
         editingEvent.topic_id !== undefined
-          ? String(editingEvent.topic_id)
+          ? String(
+              editingEvent.topic_id
+            )
           : ''
       );
 
@@ -2110,12 +1795,7 @@ function EventModal({
             ids
           );
         }
-      } catch (loadError) {
-        console.error(
-          'Ошибка загрузки элементов события:',
-          loadError
-        );
-
+      } catch {
         if (!cancelled) {
           setSelectedElementIds([]);
           setError(
@@ -2136,7 +1816,6 @@ function EventModal({
     editingEvent,
   ]);
 
-  // Загружаем элементы проекта для обоих типов событий.
   useEffect(() => {
     if (!isOpen) return;
 
@@ -2164,12 +1843,7 @@ function EventModal({
                         response.data || []
                       ),
                   };
-                } catch (loadError) {
-                  console.error(
-                    `Ошибка загрузки элементов страницы ${page.id}:`,
-                    loadError
-                  );
-
+                } catch {
                   return {
                     page,
                     elements: [],
@@ -2184,12 +1858,7 @@ function EventModal({
             results
           );
         }
-      } catch (loadError) {
-        console.error(
-          'Ошибка загрузки элементов:',
-          loadError
-        );
-
+      } catch {
         if (!cancelled) {
           setError(
             'Не удалось загрузить элементы страниц'
@@ -2199,9 +1868,7 @@ function EventModal({
         }
       } finally {
         if (!cancelled) {
-          setLoadingElements(
-            false
-          );
+          setLoadingElements(false);
         }
       }
     };
@@ -2220,6 +1887,7 @@ function EventModal({
     return null;
   }
 
+  // Переключает выбор элемента
   const toggleElement = (
     elementId
   ) => {
@@ -2237,6 +1905,7 @@ function EventModal({
     );
   };
 
+  // Фильтрует дерево элементов по поиску
   const filterElementTree = (
     elements,
     search
@@ -2283,6 +1952,7 @@ function EventModal({
     );
   };
 
+  // Проверяет страницу и её элементы по поиску
   const pageMatchesSearch = (
     page,
     elements,
@@ -2327,6 +1997,7 @@ function EventModal({
     );
   };
 
+  // Отображает дерево элементов события
   const renderEventElements = (
     elements,
     level = 0
@@ -2354,9 +2025,7 @@ function EventModal({
             >
               <input
                 type="checkbox"
-                checked={
-                  checked
-                }
+                checked={checked}
                 onChange={() =>
                   toggleElement(
                     element.id
@@ -2412,6 +2081,7 @@ function EventModal({
       []
     );
 
+  // Сохраняет новое или изменённое событие
   const handleSubmit =
     async (event) => {
       event.preventDefault();
@@ -2455,7 +2125,8 @@ function EventModal({
       }
 
       if (
-        selectedElementIds.length === 0
+        selectedElementIds.length ===
+        0
       ) {
         setError(
           'Выберите хотя бы один элемент, к которому привязать событие'
@@ -2466,7 +2137,8 @@ function EventModal({
 
       const payload = {
         event: {
-          project_id: Number(projectId),
+          project_id:
+            Number(projectId),
           name: title.trim(),
           event_type: mode,
           periodicity:
@@ -2502,13 +2174,9 @@ function EventModal({
 
         await onClose(true);
       } catch (saveError) {
-        console.error(
-          'Ошибка создания события:',
-          saveError
-        );
-
         const detail =
-          saveError.response?.data?.detail;
+          saveError.response?.data
+            ?.detail;
 
         setError(
           typeof detail ===
@@ -2584,15 +2252,10 @@ function EventModal({
           {mode === 'regular' ? (
             <div className="grid grid-cols-2 gap-3">
               <select
-                value={
-                  recurrence
-                }
-                onChange={(
-                  event
-                ) =>
+                value={recurrence}
+                onChange={(event) =>
                   setRecurrence(
-                    event.target
-                      .value
+                    event.target.value
                   )
                 }
                 className="border rounded-md px-3 py-2 bg-white"
@@ -2624,9 +2287,7 @@ function EventModal({
               <input
                 type="date"
                 value={date}
-                onChange={(
-                  event
-                ) =>
+                onChange={(event) =>
                   setDate(
                     event.target.value
                   )
@@ -2643,15 +2304,10 @@ function EventModal({
             </div>
           ) : (
             <select
-              value={
-                topicId
-              }
-              onChange={(
-                event
-              ) =>
+              value={topicId}
+              onChange={(event) =>
                 setTopicId(
-                  event.target
-                    .value
+                  event.target.value
                 )
               }
               className="border rounded-md px-3 py-2 bg-white"
@@ -2670,12 +2326,8 @@ function EventModal({
               {topics.map(
                 (topic) => (
                   <option
-                    key={
-                      topic.id
-                    }
-                    value={
-                      topic.id
-                    }
+                    key={topic.id}
+                    value={topic.id}
                   >
                     {topic.name}
                   </option>
@@ -2716,15 +2368,10 @@ function EventModal({
 
             <input
               type="text"
-              value={
-                elementSearch
-              }
-              onChange={(
-                event
-              ) =>
+              value={elementSearch}
+              onChange={(event) =>
                 setElementSearch(
-                  event.target
-                    .value
+                  event.target.value
                 )
               }
               placeholder="Поиск страницы или элемента..."
@@ -2879,13 +2526,8 @@ function EventModal({
   );
 }
 
-// ============================================================
-// EVENT ELEMENTS HELPERS
-// ============================================================
-
-function buildEventElementTree(
-  list
-) {
+// Строит дерево элементов для модального окна события
+function buildEventElementTree(list) {
   const source = list || [];
 
   const hasNestedChildren =
@@ -2894,20 +2536,16 @@ function buildEventElementTree(
         Array.isArray(
           element.children
         ) &&
-        element.children.length >
-          0
+        element.children.length > 0
     );
 
-  if (
-    hasNestedChildren
-  ) {
+  if (hasNestedChildren) {
     return source.map(
       (element) => ({
         ...element,
         children:
           buildEventElementTree(
-            element.children ||
-              []
+            element.children || []
           ),
       })
     );
@@ -2940,9 +2578,7 @@ function buildEventElementTree(
 
       const parent =
         parentId != null
-          ? byId.get(
-              parentId
-            )
+          ? byId.get(parentId)
           : null;
 
       if (parent) {
@@ -2958,10 +2594,7 @@ function buildEventElementTree(
   return roots;
 }
 
-// ============================================================
-// TOPIC MODAL
-// ============================================================
-
+// Управляет модальным окном тем
 function TopicModal({
   projectId,
   isOpen,
@@ -2997,6 +2630,7 @@ function TopicModal({
     return null;
   }
 
+  // Создаёт новую тему
   const handleCreate =
     async (event) => {
       event.preventDefault();
@@ -3012,7 +2646,8 @@ function TopicModal({
         setSaving(true);
 
         await createTopic({
-          project_id: Number(projectId),
+          project_id:
+            Number(projectId),
           name:
             trimmedName,
         });
@@ -3021,11 +2656,6 @@ function TopicModal({
 
         await onChanged?.();
       } catch (error) {
-        console.error(
-          'Ошибка создания темы:',
-          error
-        );
-
         const detail =
           error.response?.data
             ?.detail;
@@ -3041,6 +2671,7 @@ function TopicModal({
       }
     };
 
+  // Открывает редактирование темы
   const handleStartEdit = (
     topic
   ) => {
@@ -3053,12 +2684,13 @@ function TopicModal({
     );
   };
 
-  const handleCancelEdit =
-    () => {
-      setEditingTopicId(null);
-      setEditingName('');
-    };
+  // Отменяет редактирование темы
+  const handleCancelEdit = () => {
+    setEditingTopicId(null);
+    setEditingName('');
+  };
 
+  // Сохраняет изменения темы
   const handleSaveEdit =
     async (topicId) => {
       const trimmedName =
@@ -3079,19 +2711,11 @@ function TopicModal({
           }
         );
 
-        setEditingTopicId(
-          null
-        );
-
+        setEditingTopicId(null);
         setEditingName('');
 
         await onChanged?.();
       } catch (error) {
-        console.error(
-          'Ошибка редактирования темы:',
-          error
-        );
-
         const detail =
           error.response?.data
             ?.detail;
@@ -3107,6 +2731,7 @@ function TopicModal({
       }
     };
 
+  // Удаляет тему
   const handleDelete = async (
     topic
   ) => {
@@ -3128,11 +2753,6 @@ function TopicModal({
 
       await onChanged?.();
     } catch (error) {
-      console.error(
-        'Ошибка удаления темы:',
-        error
-      );
-
       const detail =
         error.response?.data
           ?.detail;
@@ -3279,9 +2899,7 @@ function TopicModal({
                           }
                         >
                           <X
-                            size={
-                              16
-                            }
+                            size={16}
                           />
                         </button>
                       </>
@@ -3314,9 +2932,7 @@ function TopicModal({
                           }
                         >
                           <Pencil
-                            size={
-                              16
-                            }
+                            size={16}
                           />
                         </button>
 
@@ -3334,9 +2950,7 @@ function TopicModal({
                           }
                         >
                           <Trash2
-                            size={
-                              16
-                            }
+                            size={16}
                           />
                         </button>
                       </>

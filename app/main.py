@@ -18,32 +18,21 @@ from app import crud, models, schemas
 from app.database import engine, get_db
 from app.crud import get_or_create_current_task
 
-# ============================================================
-# DATABASE
-# ============================================================
-# create_all для async-движка нужно запускать через run_sync
 
-
+# Создаёт таблицы базы данных при запуске приложения
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     async with engine.begin() as conn:
         await conn.run_sync(models.Base.metadata.create_all)
+
     yield
 
-
-# ============================================================
-# FASTAPI
-# ============================================================
 
 app = FastAPI(
     title="Карта актуальности API",
     lifespan=lifespan,
 )
 
-
-# ============================================================
-# CORS
-# ============================================================
 
 app.add_middleware(
     CORSMiddleware,
@@ -60,11 +49,7 @@ app.add_middleware(
 )
 
 
-# ============================================================
-# PROJECTS
-# ============================================================
-
-
+# Получает список проектов
 @app.get(
     "/projects",
     response_model=List[schemas.ProjectResponse],
@@ -81,6 +66,7 @@ async def read_projects(
     )
 
 
+# Создаёт новый проект
 @app.post(
     "/projects",
     response_model=schemas.ProjectResponse,
@@ -95,6 +81,7 @@ async def create_project(
     )
 
 
+# Удаляет проект по идентификатору
 @app.delete("/projects/{project_id}")
 async def delete_project(
     project_id: int,
@@ -117,11 +104,7 @@ async def delete_project(
     }
 
 
-# ============================================================
-# PAGES
-# ============================================================
-
-
+# Получает страницы выбранного проекта
 @app.get(
     "/projects/{project_id}/pages",
     response_model=List[schemas.PageResponse],
@@ -136,6 +119,7 @@ async def read_pages(
     )
 
 
+# Создаёт страницу в выбранном проекте
 @app.post(
     "/projects/{project_id}/pages",
     response_model=schemas.PageResponse,
@@ -152,6 +136,7 @@ async def create_page(
     )
 
 
+# Обновляет страницу
 @app.put(
     "/pages/{page_id}",
     response_model=schemas.PageResponse,
@@ -176,6 +161,7 @@ async def update_page(
     return db_page
 
 
+# Удаляет страницу
 @app.delete("/pages/{page_id}")
 async def delete_page(
     page_id: int,
@@ -198,11 +184,7 @@ async def delete_page(
     }
 
 
-# ============================================================
-# ELEMENTS
-# ============================================================
-
-
+# Получает элементы страницы
 @app.get(
     "/pages/{page_id}/elements",
     response_model=List[schemas.ElementResponse],
@@ -217,6 +199,7 @@ async def read_elements(
     )
 
 
+# Создаёт элемент на странице
 @app.post(
     "/pages/{page_id}/elements",
     response_model=schemas.ElementResponse,
@@ -233,6 +216,7 @@ async def create_element(
     )
 
 
+# Удаляет элемент
 @app.delete("/elements/{element_id}")
 async def delete_element(
     element_id: int,
@@ -255,11 +239,7 @@ async def delete_element(
     }
 
 
-# ============================================================
-# EVENTS
-# ============================================================
-
-
+# Получает события выбранного проекта
 @app.get(
     "/events",
     response_model=List[schemas.EventResponse],
@@ -276,6 +256,7 @@ async def read_events(
     )
 
 
+# Создаёт событие и связывает его с элементами
 @app.post(
     "/events",
     response_model=schemas.EventResponse,
@@ -294,14 +275,14 @@ async def create_event(
             event,
             element_ids,
         )
-
-    except ValueError as e:
-
+    except ValueError as error:
         raise HTTPException(
             status_code=400,
-            detail=str(e),
+            detail=str(error),
         )
 
+
+# Удаляет событие
 @app.delete("/events/{event_id}")
 async def delete_event(
     event_id: int,
@@ -323,15 +304,23 @@ async def delete_event(
         "message": "Event deleted",
     }
 
+
+# Получает элементы, связанные с событием
 @app.get("/events/{event_id}/elements")
 async def read_event_elements(
     event_id: int,
     db: AsyncSession = Depends(get_db),
 ):
-    result = await crud.get_event_elements(db, event_id)
+    result = await crud.get_event_elements(
+        db,
+        event_id,
+    )
 
     if not result:
-        event = await crud.get_event(db, event_id)
+        event = await crud.get_event(
+            db,
+            event_id,
+        )
 
         if not event:
             raise HTTPException(
@@ -341,7 +330,12 @@ async def read_event_elements(
 
     return result
 
-@app.put("/events/{event_id}", response_model=schemas.EventResponse)
+
+# Обновляет событие и его связи с элементами
+@app.put(
+    "/events/{event_id}",
+    response_model=schemas.EventResponse,
+)
 async def update_event(
     event_id: int,
     event: schemas.EventUpdate,
@@ -381,11 +375,9 @@ async def update_event(
             status_code=404,
             detail=str(error),
         )
-# ============================================================
-# EVENTS OF ELEMENT
-# ============================================================
 
 
+# Получает события, связанные с элементом
 @app.get(
     "/elements/{element_id}/events",
     response_model=List[schemas.EventResponse],
@@ -394,10 +386,12 @@ async def get_events_by_element(
     element_id: int,
     db: AsyncSession = Depends(get_db),
 ):
-    # Проверяем существование элемента
     result = await db.execute(
-        select(models.Element).filter(models.Element.id == element_id)
+        select(models.Element).filter(
+            models.Element.id == element_id
+        )
     )
+
     element = result.scalars().first()
 
     if not element:
@@ -412,6 +406,7 @@ async def get_events_by_element(
     )
 
 
+# Связывает событие с элементом
 @app.post("/elements/{element_id}/events/{event_id}")
 async def attach_event_to_element(
     element_id: int,
@@ -427,7 +422,7 @@ async def attach_event_to_element(
     if not success:
         raise HTTPException(
             status_code=404,
-            detail=("Element or event not found"),
+            detail="Element or event not found",
         )
 
     return {
@@ -436,6 +431,7 @@ async def attach_event_to_element(
     }
 
 
+# Удаляет связь события с элементом
 @app.delete("/elements/{element_id}/events/{event_id}")
 async def detach_event_from_element(
     element_id: int,
@@ -451,7 +447,7 @@ async def detach_event_from_element(
     if not success:
         raise HTTPException(
             status_code=404,
-            detail=("Event association not found"),
+            detail="Event association not found",
         )
 
     return {
@@ -460,11 +456,7 @@ async def detach_event_from_element(
     }
 
 
-# ============================================================
-# TOPICS
-# ============================================================
-
-
+# Получает темы выбранного проекта
 @app.get(
     "/topics",
     response_model=List[schemas.TopicResponse],
@@ -479,6 +471,7 @@ async def read_topics(
     )
 
 
+# Создаёт новую тему
 @app.post(
     "/topics",
     response_model=schemas.TopicResponse,
@@ -498,6 +491,8 @@ async def create_topic(
             detail=str(error),
         )
 
+
+# Обновляет тему
 @app.put(
     "/topics/{topic_id}",
     response_model=schemas.TopicResponse,
@@ -527,9 +522,10 @@ async def update_topic(
             status_code=400,
             detail=str(error),
         )
-@app.delete(
-    "/topics/{topic_id}",
-)
+
+
+# Удаляет тему
+@app.delete("/topics/{topic_id}")
 async def delete_topic(
     topic_id: int,
     db: AsyncSession = Depends(get_db),
@@ -549,11 +545,9 @@ async def delete_topic(
         "ok": True,
         "message": "Topic deleted",
     }
-# ============================================================
-# TASKS
-# ============================================================
 
 
+# Получает список задач с возможностью фильтрации по статусу
 @app.get(
     "/tasks",
     response_model=List[schemas.EventTaskResponse],
@@ -565,7 +559,9 @@ async def read_tasks(
     query = select(models.EventTask)
 
     if completed is not None:
-        query = query.filter(models.EventTask.completed == completed)
+        query = query.filter(
+            models.EventTask.completed == completed
+        )
 
     result = await db.execute(query)
     tasks = result.scalars().all()
@@ -573,12 +569,14 @@ async def read_tasks(
     today = date.today()
 
     for task in tasks:
-
-        task.is_overdue = not task.completed and task.due_date < today
+        task.is_overdue = (
+            not task.completed and task.due_date < today
+        )
 
     return tasks
 
 
+# Создаёт новую задачу
 @app.post(
     "/tasks",
     response_model=schemas.EventTaskResponse,
@@ -593,6 +591,7 @@ async def create_task(
     )
 
 
+# Обновляет задачу
 @app.put(
     "/tasks/{task_id}",
     response_model=schemas.EventTaskResponse,
@@ -617,6 +616,7 @@ async def update_task(
     return task
 
 
+# Удаляет задачу
 @app.delete("/tasks/{task_id}")
 async def delete_task(
     task_id: int,
@@ -639,11 +639,7 @@ async def delete_task(
     }
 
 
-# ============================================================
-# CREATE PAGE WITH ELEMENTS
-# ============================================================
-
-
+# Создаёт страницу вместе с её элементами
 @app.post("/projects/{project_id}/pages_with_elements")
 async def create_page_with_elements(
     project_id: int,
@@ -657,11 +653,7 @@ async def create_page_with_elements(
     )
 
 
-# ============================================================
-# CHECKLIST
-# ============================================================
-
-
+# Формирует чек-лист из регулярных и нерегулярных событий
 @app.get(
     "/tasks/checklist",
     response_model=List[schemas.EventTaskResponse],
@@ -669,16 +661,17 @@ async def create_page_with_elements(
 async def get_checklist(
     db: AsyncSession = Depends(get_db),
 ):
-    # Регулярные события
     result = await db.execute(
-        select(models.Event).filter(models.Event.event_type == "regular")
+        select(models.Event).filter(
+            models.Event.event_type == "regular"
+        )
     )
+
     events = result.scalars().all()
 
     tasks = []
 
     for event in events:
-
         task = await get_or_create_current_task(
             db,
             event.id,
@@ -687,12 +680,12 @@ async def get_checklist(
         if task:
             tasks.append(task)
 
-    # Нерегулярные события
     result = await db.execute(
         select(models.EventTask)
         .join(models.Event)
         .filter(models.Event.event_type == "irregular")
     )
+
     irregular_tasks = result.scalars().all()
 
     tasks.extend(irregular_tasks)

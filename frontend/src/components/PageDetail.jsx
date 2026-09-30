@@ -10,6 +10,7 @@ import {
   getChecklist,
 } from '../services/api';
 
+// Форматирует дату для отображения
 const formatDate = (dateString) => {
   if (!dateString) return '';
 
@@ -21,6 +22,7 @@ const formatDate = (dateString) => {
   });
 };
 
+// Управляет отображением страницы и её данных
 function PageDetail() {
   const { projectId, pageId } = useParams();
   const navigate = useNavigate();
@@ -37,11 +39,11 @@ function PageDetail() {
     fetchPageData();
   }, [pageId, projectId]);
 
+  // Загружает данные страницы, проекта и элементов
   const fetchPageData = async () => {
     try {
       setLoading(true);
 
-      // Получаем страницу
       const pagesRes = await getPages(projectId);
 
       const foundPage = pagesRes.data.find(
@@ -50,7 +52,6 @@ function PageDetail() {
 
       setPage(foundPage);
 
-      // Получаем проект
       const projectsRes = await getProjects();
 
       const foundProject = projectsRes.data.find(
@@ -59,30 +60,21 @@ function PageDetail() {
 
       setProject(foundProject);
 
-      // Получаем элементы страницы
       const elementsRes = await getElements(pageId);
 
       const pageElements = elementsRes.data || [];
 
       setElements(pageElements);
 
-      // Получаем события, привязанные к этим элементам
       await fetchEventsData(pageElements);
-
-    } catch (error) {
-      console.error(
-        'Ошибка загрузки данных страницы:',
-        error
-      );
+    } catch {
+      return;
     } finally {
       setLoading(false);
     }
   };
 
-  // ============================================================
-  // События элементов
-  // ============================================================
-
+  // Загружает события и чеклист для элементов страницы
   const fetchEventsData = async (pageElements) => {
     try {
       if (pageElements.length === 0) {
@@ -91,14 +83,12 @@ function PageDetail() {
         return;
       }
 
-      // Получаем события для каждого элемента
       const eventResults = await Promise.all(
         pageElements.map((el) =>
           getEventElements(el.id)
         )
       );
 
-      // Связываем элемент и его события
       const elementEventPairs = [];
 
       pageElements.forEach((el, idx) => {
@@ -112,10 +102,8 @@ function PageDetail() {
         });
       });
 
-      // Получаем чеклист
       const checklistRes = await getChecklist();
 
-      // Группируем задачи по event_id
       const tasksByEvent = {};
 
       (checklistRes.data || []).forEach((task) => {
@@ -129,7 +117,6 @@ function PageDetail() {
       const regular = [];
       const irregular = [];
 
-      // Формируем данные для вывода
       elementEventPairs.forEach(
         ({ element, event }) => {
           const tasks =
@@ -143,14 +130,8 @@ function PageDetail() {
           dueDates.forEach((dueDate) => {
             const item = {
               key: `${event.id}-${element.id}-${dueDate}`,
-
-              // Название элемента
               label: element.name,
-
-              // Название события
               eventName: event.name,
-
-              // Дата из чеклиста
               dueDate,
             };
 
@@ -168,19 +149,12 @@ function PageDetail() {
 
       setRegularItems(regular);
       setIrregularItems(irregular);
-
-    } catch (error) {
-      console.error(
-        'Ошибка загрузки событий:',
-        error
-      );
+    } catch {
+      return;
     }
   };
 
-  // ============================================================
-  // Построение дерева элементов
-  // ============================================================
-
+  // Строит дерево элементов страницы
   const buildElementTree = (elements) => {
     const elementMap = {};
 
@@ -210,10 +184,7 @@ function PageDetail() {
     return tree;
   };
 
-  // ============================================================
-  // Рендеринг дерева элементов
-  // ============================================================
-
+  // Отображает дерево элементов с учётом вложенности
   const renderElements = (
     items,
     level = 0,
@@ -277,10 +248,6 @@ function PageDetail() {
     });
   };
 
-  // ============================================================
-  // Loading
-  // ============================================================
-
   if (loading) {
     return (
       <div className="h-screen flex items-center justify-center">
@@ -288,10 +255,6 @@ function PageDetail() {
       </div>
     );
   }
-
-  // ============================================================
-  // Страница не найдена
-  // ============================================================
 
   if (!page) {
     return (
@@ -343,11 +306,6 @@ function PageDetail() {
           backgroundColor: colors.white,
         }}
       >
-
-        {/* ====================================================
-            HEADER
-        ==================================================== */}
-
         <div
           className="p-6 border-b relative"
           style={{
@@ -357,8 +315,6 @@ function PageDetail() {
               colors.background,
           }}
         >
-
-          {/* Кнопка возврата */}
           <button
             onClick={() =>
               navigate(
@@ -375,7 +331,6 @@ function PageDetail() {
             />
           </button>
 
-          {/* Название проекта */}
           <h1
             className="text-3xl font-semibold text-center"
             style={{
@@ -386,13 +341,7 @@ function PageDetail() {
           </h1>
         </div>
 
-        {/* ====================================================
-            КОНТЕНТ
-        ==================================================== */}
-
         <div className="p-8 max-w-4xl mx-auto">
-
-          {/* Название страницы */}
           <h1
             className="text-3xl font-semibold mb-6 text-center"
             style={{
@@ -401,10 +350,6 @@ function PageDetail() {
           >
             {page.title}
           </h1>
-
-          {/* ==================================================
-              ССЫЛКИ
-          ================================================== */}
 
           {page.links &&
             page.links.length > 0 && (
@@ -431,10 +376,6 @@ function PageDetail() {
               </div>
             )}
 
-          {/* ==================================================
-              СОДЕРЖАНИЕ
-          ================================================== */}
-
           {elements.length > 0 && (
             <div className="mb-8">
               <h2 className="text-2xl mb-4">
@@ -451,10 +392,6 @@ function PageDetail() {
             </div>
           )}
 
-          {/* ==================================================
-              ДАННЫЕ, КОТОРЫЕ МОГУТ ОБНОВЛЯТЬСЯ
-          ================================================== */}
-
           <div>
             <h2 className="text-2xl mb-4">
               Данные, которые могут
@@ -462,18 +399,12 @@ function PageDetail() {
             </h2>
 
             <div className="pl-4">
-
-              {/* ==================================================
-                  РЕГУЛЯРНЫЕ
-              ================================================== */}
-
               <div className="mb-4">
                 <span className="text-2xl">
                   Регулярно:
                 </span>
 
                 <div className="ml-12 mt-2 text-2xl">
-
                   {regularItems.length === 0 ? (
                     <div
                       style={{
@@ -508,13 +439,8 @@ function PageDetail() {
                       )
                     )
                   )}
-
                 </div>
               </div>
-
-              {/* ==================================================
-                  НЕРЕГУЛЯРНЫЕ
-              ================================================== */}
 
               <div>
                 <span className="text-2xl">
@@ -522,7 +448,6 @@ function PageDetail() {
                 </span>
 
                 <div className="ml-12 mt-2 text-2xl">
-
                   {irregularItems.length === 0 ? (
                     <div
                       style={{
@@ -555,13 +480,10 @@ function PageDetail() {
                       )
                     )
                   )}
-
                 </div>
               </div>
-
             </div>
           </div>
-
         </div>
       </div>
     </div>
@@ -569,4 +491,3 @@ function PageDetail() {
 }
 
 export default PageDetail;
-

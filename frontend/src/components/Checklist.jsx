@@ -8,14 +8,12 @@ import {
   getEventDate,
   getEventRecurrence,
   RECURRENCE_LABELS,
-} from '../utils/eventHelpers'
+} from '../utils/eventHelpers';
 
-// ============================================================
-// ДЕРЕВО ЭЛЕМЕНТОВ (та же логика, что и в AddPageModal.jsx)
-// ============================================================
-
+// Строит дерево элементов из списка
 const buildElementTree = (list) => {
   const source = list || [];
+
   const hasNested = source.some(
     (el) => Array.isArray(el.children) && el.children.length > 0
   );
@@ -47,32 +45,24 @@ const buildElementTree = (list) => {
   return roots;
 };
 
-// ============================================================
-// ПРОСРОЧЕННОСТЬ РЕГУЛЯРНЫХ СОБЫТИЙ
-// ============================================================
-
-// Приблизительная длительность периода в днях.
-// Упрощение: месяц = 30 дней, квартал = 91 день, год = 365 дней.
 const PERIODICITY_DAYS = {
-  'еженедельно': 7,
+  еженедельно: 7,
   weekly: 7,
-  'ежемесячно': 30,
+  ежемесячно: 30,
   monthly: 30,
   'раз в квартал': 91,
   quarterly: 91,
-  'ежегодно': 365,
+  ежегодно: 365,
   yearly: 365,
 };
 
+// Считает количество дней от указанной даты до текущего дня
 const daysSince = (isoDate) => {
   if (!isoDate) return null;
 
   const parts = String(isoDate).split('-').map(Number);
 
-  if (
-    parts.length < 3 ||
-    parts.some(Number.isNaN)
-  ) {
+  if (parts.length < 3 || parts.some(Number.isNaN)) {
     return null;
   }
 
@@ -97,8 +87,7 @@ const daysSince = (isoDate) => {
   );
 };
 
-// Регулярное событие считается просроченным, если с даты его последнего
-// наступления прошло больше одного периода (и оно не отмечено выполненным).
+// Проверяет, является ли регулярное событие просроченным
 const isRowOverdue = (event) => {
   if (isIrregularEvent(event)) return false;
 
@@ -112,19 +101,13 @@ const isRowOverdue = (event) => {
   return diff > intervalDays;
 };
 
-// ============================================================
-// ФОРМАТИРОВАНИЕ
-// ============================================================
-
+// Форматирует дату для отображения
 const formatDisplayDate = (isoDate) => {
   if (!isoDate) return '';
 
   const parts = String(isoDate).split('-').map(Number);
 
-  if (
-    parts.length < 3 ||
-    parts.some(Number.isNaN)
-  ) {
+  if (parts.length < 3 || parts.some(Number.isNaN)) {
     return '';
   }
 
@@ -133,6 +116,7 @@ const formatDisplayDate = (isoDate) => {
   return `${day}.${String(month).padStart(2, '0')}.${year}`;
 };
 
+// Формирует подпись строки чеклиста
 const buildRowLabel = (elementName, event) => {
   const title = getEventTitle(event);
 
@@ -152,10 +136,7 @@ const buildRowLabel = (elementName, event) => {
     : `${elementName} - ${title}`;
 };
 
-// ============================================================
-// ФИЛЬТР ПО ТИПУ (Регулярные / Нерегулярные)
-// ============================================================
-
+// Отображает выпадающий фильтр по типу события
 const TypeFilterDropdown = ({
   selected,
   onToggle,
@@ -280,17 +261,7 @@ const TypeFilterDropdown = ({
   );
 };
 
-// ============================================================
-// ЧЕКЛИСТЫ
-// ============================================================
-
-// projectId используется как ключ localStorage,
-// pages — список страниц проекта.
-//
-// ВАЖНО: отметка "выполнено" пока хранится только локально
-// в браузере (localStorage), потому что в API нет поля
-// для статуса выполнения по паре (элемент, событие).
-
+// Отображает чеклисты элементов проекта
 const ChecklistsSection = ({
   projectId,
   pages,
@@ -312,10 +283,6 @@ const ChecklistsSection = ({
   const storageKey =
     `checklist_done_project_${projectId}`;
 
-  // ============================================================
-  // Загрузка отметок "выполнено" из localStorage
-  // ============================================================
-
   useEffect(() => {
     try {
       const raw =
@@ -330,20 +297,12 @@ const ChecklistsSection = ({
             : []
         )
       );
-    } catch (error) {
-      console.error(
-        'Ошибка чтения отметок чеклиста:',
-        error
-      );
-
+    } catch {
       setDoneIds(new Set());
     }
   }, [storageKey]);
 
-  // ============================================================
-  // Отметить выполненным / невыполненным
-  // ============================================================
-
+  // Переключает статус выполнения строки
   const toggleDone = useCallback(
     (rowId) => {
       setDoneIds((prev) => {
@@ -360,11 +319,8 @@ const ChecklistsSection = ({
             storageKey,
             JSON.stringify([...next])
           );
-        } catch (error) {
-          console.error(
-            'Ошибка сохранения отметок чеклиста:',
-            error
-          );
+        } catch {
+          return next;
         }
 
         return next;
@@ -373,10 +329,7 @@ const ChecklistsSection = ({
     [storageKey]
   );
 
-  // ============================================================
-  // Загрузка элементов всех страниц проекта и их событий
-  // ============================================================
-
+  // Загружает элементы всех страниц проекта и их события
   const loadRows = useCallback(
     async () => {
       setLoading(true);
@@ -399,6 +352,7 @@ const ChecklistsSection = ({
 
                   const flat = [];
 
+                  // Обходит дерево элементов и собирает события
                   const walk =
                     async (nodes) => {
                       for (
@@ -420,12 +374,7 @@ const ChecklistsSection = ({
 
                             events =
                               res.data || [];
-                          } catch (error) {
-                            console.error(
-                              'Ошибка загрузки событий элемента:',
-                              error
-                            );
-
+                          } catch {
                             events = [];
                           }
                         }
@@ -453,12 +402,7 @@ const ChecklistsSection = ({
                   await walk(tree);
 
                   return flat;
-                } catch (error) {
-                  console.error(
-                    `Ошибка загрузки элементов страницы ${page.id}:`,
-                    error
-                  );
-
+                } catch {
                   return [];
                 }
               }
@@ -479,25 +423,16 @@ const ChecklistsSection = ({
     loadRows();
   }, [loadRows]);
 
-  // ============================================================
-  // ФИЛЬТР ПО ТИПУ
-  // ============================================================
-
+  // Переключает фильтр по типу события
   const toggleTypeFilter = useCallback((type) => {
     setTypeFilter((prev) => {
-      // Если этот фильтр уже выбран — снимаем фильтр
       if (prev.includes(type)) {
         return [];
       }
 
-      // Иначе выбираем только этот тип
       return [type];
     });
   }, []);
-
-  // ============================================================
-  // ВИДИМЫЕ СТРОКИ
-  // ============================================================
 
   const visibleRows = useMemo(() => {
     const term =
@@ -592,10 +527,6 @@ const ChecklistsSection = ({
     search,
   ]);
 
-  // ============================================================
-  // ВКЛАДКИ
-  // ============================================================
-
   const tabs = [
     {
       id: 'pending',
@@ -611,10 +542,6 @@ const ChecklistsSection = ({
     },
   ];
 
-  // ============================================================
-  // RENDER
-  // ============================================================
-
   return (
     <div
       className="rounded-2xl p-4"
@@ -623,8 +550,6 @@ const ChecklistsSection = ({
         border: `1px solid ${colors.lightGray}`,
       }}
     >
-      {/* Вкладки */}
-
       <div className="flex gap-2 mb-3">
         {tabs.map((tab) => {
           const isActive =
@@ -669,8 +594,6 @@ const ChecklistsSection = ({
         })}
       </div>
 
-      {/* Панель со списком */}
-
       <div
         className="rounded-lg p-3"
         style={{
@@ -678,8 +601,6 @@ const ChecklistsSection = ({
           backgroundColor: colors.white,
         }}
       >
-        {/* Поиск */}
-
         <div
           className="flex items-center gap-2 px-3 py-2.5 rounded-lg bg-white mb-3"
           style={{
@@ -714,8 +635,6 @@ const ChecklistsSection = ({
           />
         </div>
 
-        {/* Список */}
-
         <div className="max-h-[280px] overflow-auto">
           {loading ? (
             <p
@@ -743,8 +662,6 @@ const ChecklistsSection = ({
                 key={row.id}
                 className="flex items-start gap-2 py-1"
               >
-                {/* Тип события */}
-
                 <span
                   className="text-sm font-semibold flex-shrink-0"
                   style={{
@@ -756,8 +673,6 @@ const ChecklistsSection = ({
                     ? 'Н'
                     : 'Р'}
                 </span>
-
-                {/* Чекбокс */}
 
                 <button
                   type="button"
@@ -796,8 +711,6 @@ const ChecklistsSection = ({
                   )}
                 </button>
 
-                {/* Название */}
-
                 <span
                   className="text-sm flex-1"
                   style={{
@@ -807,8 +720,6 @@ const ChecklistsSection = ({
                 >
                   {row.label}
                 </span>
-
-                {/* Дата */}
 
                 {row.date && (
                   <span
@@ -833,4 +744,3 @@ const ChecklistsSection = ({
 };
 
 export default ChecklistsSection;
-
