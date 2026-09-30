@@ -265,11 +265,13 @@ async def delete_element(
     response_model=List[schemas.EventResponse],
 )
 async def read_events(
+    project_id: int,
     event_type: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
 ):
     return await crud.get_events(
         db,
+        project_id,
         event_type,
     )
 
@@ -296,7 +298,7 @@ async def create_event(
     except ValueError as e:
 
         raise HTTPException(
-            status_code=404,
+            status_code=400,
             detail=str(e),
         )
 
@@ -468,9 +470,13 @@ async def detach_event_from_element(
     response_model=List[schemas.TopicResponse],
 )
 async def read_topics(
+    project_id: int,
     db: AsyncSession = Depends(get_db),
 ):
-    return await crud.get_topics(db)
+    return await crud.get_topics(
+        db,
+        project_id,
+    )
 
 
 @app.post(
@@ -481,10 +487,16 @@ async def create_topic(
     topic: schemas.TopicCreate,
     db: AsyncSession = Depends(get_db),
 ):
-    return await crud.create_topic(
-        db,
-        topic,
-    )
+    try:
+        return await crud.create_topic(
+            db,
+            topic,
+        )
+    except ValueError as error:
+        raise HTTPException(
+            status_code=404,
+            detail=str(error),
+        )
 
 @app.put(
     "/topics/{topic_id}",

@@ -43,6 +43,20 @@ class Project(Base):
         passive_deletes=True,
     )
 
+    topics = relationship(
+        "Topic",
+        back_populates="project",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+
+    events = relationship(
+        "Event",
+        back_populates="project",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+
 
 # ============================================================
 # PAGE
@@ -287,6 +301,21 @@ class Topic(Base):
         nullable=False,
     )
 
+    project_id = Column(
+        BigInteger,
+        ForeignKey(
+            "projects.id",
+            ondelete="CASCADE",
+        ),
+        nullable=False,
+        index=True,
+    )
+
+    project = relationship(
+        "Project",
+        back_populates="topics",
+    )
+
     events = relationship(
         "Event",
         back_populates="topic",
@@ -348,6 +377,16 @@ class Event(Base):
         nullable=False,
     )
 
+    project_id = Column(
+        BigInteger,
+        ForeignKey(
+            "projects.id",
+            ondelete="CASCADE",
+        ),
+        nullable=False,
+        index=True,
+    )
+
     event_type = Column(
         Text,
         nullable=False,
@@ -370,6 +409,15 @@ class Event(Base):
             ondelete="RESTRICT",
         ),
         nullable=True,
+    )
+
+    # -------------------------
+    # PROJECT
+    # -------------------------
+
+    project = relationship(
+        "Project",
+        back_populates="events",
     )
 
     # -------------------------

@@ -295,16 +295,16 @@ const AddPageModal = ({
     return () => {
       cancelled = true;
     };
-  }, [isOpen, editingPage]);
+  }, [isOpen, editingPage, projectId]);
 
   const fetchEvents = useCallback(async () => {
     try {
-      const response = await getEvents();
+      const response = await getEvents(projectId);
       setExistingEvents(response.data || []);
     } catch (error) {
       console.error('Ошибка загрузки событий:', error);
     }
-  }, []);
+  }, [projectId]);
 
   // Загружает элементы редактируемой страницы и события, привязанные к каждому элементу
   const loadPageElements = useCallback(async (pageId, isCancelled = () => false) => {
@@ -582,12 +582,21 @@ const AddPageModal = ({
       pending.map(async (ev) => {
         const eventPayload = ev.event_type === 'regular'
           ? {
+              project_id: Number(projectId),
               name: ev.name,
               event_type: 'regular',
               periodicity: (ev.periodicity || '').toLowerCase() || null, // 'Ежегодно' -> 'ежегодно'
               start_date: ev.start_date || null,
+              topic_id: null,
             }
-          : { name: ev.name, event_type: 'irregular' };
+          : {
+              project_id: Number(projectId),
+              name: ev.name,
+              event_type: 'irregular',
+              periodicity: null,
+              start_date: null,
+              topic_id: null,
+            };
 
         const { data } = await createEvent({
           event: eventPayload,
@@ -623,7 +632,7 @@ const AddPageModal = ({
       }
       originalRef.current.delete(id);
     }
-  }, [elements, existingEvents]);
+  }, [elements, existingEvents, projectId]);
 
   const handleSave = useCallback(async () => {
     // синхронная проверка через ref — исключает двойной сабмит от быстрых

@@ -1,7 +1,6 @@
 from pydantic import BaseModel
 from typing import Optional, List
 from datetime import date, datetime
-from pydantic import validator
 
 
 class ProjectCreate(BaseModel):
@@ -61,8 +60,9 @@ class ElementResponse(BaseModel):
 
 
 class EventCreate(BaseModel):
+    project_id: int
     name: str
-    event_type: str  # 'regular' or 'irregular'
+    event_type: str
     periodicity: Optional[str] = None
     start_date: Optional[date] = None
     topic_id: Optional[int] = None
@@ -70,6 +70,7 @@ class EventCreate(BaseModel):
 
 class EventResponse(BaseModel):
     id: int
+    project_id: int
     name: str
     event_type: str
     periodicity: Optional[str]
@@ -81,7 +82,9 @@ class EventResponse(BaseModel):
 
 
 class TopicCreate(BaseModel):
+    project_id: int
     name: str
+
 
 class TopicUpdate(BaseModel):
     name: str
@@ -93,7 +96,7 @@ class EventTaskResponse(BaseModel):
     due_date: date
     completed: bool
     completed_at: Optional[datetime] = None
-    is_overdue: Optional[bool] = False  # добавить это поле
+    is_overdue: Optional[bool] = False
 
     class Config:
         from_attributes = True
@@ -103,19 +106,13 @@ class EventTaskCreate(BaseModel):
     event_id: int
     due_date: date
 
+
 class EventUpdate(BaseModel):
     name: str
     event_type: str
     periodicity: Optional[str] = None
     start_date: Optional[date] = None
     topic_id: Optional[int] = None
-    
-class EventTaskResponse(BaseModel):
-    id: int
-    event_id: int
-    due_date: date
-    completed: bool
-    completed_at: Optional[datetime]
 
 
 class EventTaskUpdate(BaseModel):
@@ -124,6 +121,7 @@ class EventTaskUpdate(BaseModel):
 
 class TopicResponse(BaseModel):
     id: int
+    project_id: int
     name: str
 
     class Config:

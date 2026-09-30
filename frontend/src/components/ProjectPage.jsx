@@ -131,7 +131,7 @@ function ProjectPage() {
       // EVENTS
       // -------------------------
 
-      const eventsRes = await getEvents();
+      const eventsRes = await getEvents(projectId);
 
       setEvents(
         eventsRes.data || []
@@ -141,7 +141,7 @@ function ProjectPage() {
       // TOPICS
       // -------------------------
 
-      const topicsRes = await getTopics();
+      const topicsRes = await getTopics(projectId);
 
       setTopics(
         topicsRes.data || []
@@ -1016,8 +1016,8 @@ function ProjectPage() {
           topicsRes,
           eventsRes,
         ] = await Promise.all([
-          getTopics(),
-          getEvents(),
+          getTopics(projectId),
+          getEvents(projectId),
         ]);
 
         setTopics(
@@ -1976,6 +1976,9 @@ function ProjectPage() {
         mode={
           eventModalMode
         }
+        projectId={
+          projectId
+        }
         topics={
           topics
         }
@@ -1992,6 +1995,9 @@ function ProjectPage() {
       {/* ================================================== */}
 
       <TopicModal
+        projectId={
+          projectId
+        }
         isOpen={
           isTopicModalOpen
         }
@@ -2017,6 +2023,7 @@ function EventModal({
   isOpen,
   onClose,
   mode,
+  projectId,
   topics,
   pages,
   editingEvent,
@@ -2459,6 +2466,7 @@ function EventModal({
 
       const payload = {
         event: {
+          project_id: Number(projectId),
           name: title.trim(),
           event_type: mode,
           periodicity:
@@ -2955,6 +2963,7 @@ function buildEventElementTree(
 // ============================================================
 
 function TopicModal({
+  projectId,
   isOpen,
   onClose,
   topics,
@@ -3003,6 +3012,7 @@ function TopicModal({
         setSaving(true);
 
         await createTopic({
+          project_id: Number(projectId),
           name:
             trimmedName,
         });

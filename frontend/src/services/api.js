@@ -97,8 +97,18 @@ export const deleteElement = (
 // EVENTS
 // ============================================================
 
-export const getEvents = () => {
-  return api.get('events');
+export const getEvents = (projectId, eventType = null) => {
+  const params = {
+    project_id: projectId,
+  };
+
+  if (eventType) {
+    params.event_type = eventType;
+  }
+
+  return api.get('/events', {
+    params,
+  });
 };
 
 export const createEvent = (
@@ -109,6 +119,7 @@ export const createEvent = (
     data
   );
 };
+
 export const deleteEvent = (
   eventId
 ) => {
@@ -116,24 +127,30 @@ export const deleteEvent = (
     `/events/${eventId}`
   );
 };
-export const updateEvent = (eventId, data) => {
-  return api.put(`/events/${eventId}`, data);
+
+export const updateEvent = (
+  eventId,
+  data
+) => {
+  return api.put(
+    `/events/${eventId}`,
+    data
+  );
 };
 
-export const getEventElementsByEvent = (eventId) => {
-  return api.get(`/events/${eventId}/elements`);
+export const getEventElementsByEvent = (
+  eventId
+) => {
+  return api.get(
+    `/events/${eventId}/elements`
+  );
 };
+
+
 // ============================================================
 // EVENTS OF ELEMENT
 // ============================================================
 
-/**
- * Получить все события,
- * привязанные к элементу.
- *
- * GET:
- * /elements/{elementId}/events
- */
 export const getEventElements = (
   elementId
 ) => {
@@ -141,8 +158,6 @@ export const getEventElements = (
     `/elements/${elementId}/events`
   );
 };
-
-
 
 export const attachEventToElement = (
   elementId,
@@ -153,12 +168,6 @@ export const attachEventToElement = (
   );
 };
 
-/**
- * Отвязать событие от элемента.
- *
- * DELETE:
- * /elements/{elementId}/events/{eventId}
- */
 export const deleteEventElement = (
   elementId,
   eventId
@@ -173,20 +182,37 @@ export const deleteEventElement = (
 // TOPICS
 // ============================================================
 
-export const getTopics = () => {
-  return api.get('/topics');
+export const getTopics = (projectId) => {
+  return api.get('/topics', {
+    params: {
+      project_id: projectId,
+    },
+  });
 };
 
 export const createTopic = (data) => {
-  return api.post('/topics', data);
+  return api.post(
+    '/topics',
+    data
+  );
 };
 
-export const updateTopic = (topicId, data) => {
-  return api.put(`/topics/${topicId}`, data);
+export const updateTopic = (
+  topicId,
+  data
+) => {
+  return api.put(
+    `/topics/${topicId}`,
+    data
+  );
 };
 
-export const deleteTopic = (topicId) => {
-  return api.delete(`/topics/${topicId}`);
+export const deleteTopic = (
+  topicId
+) => {
+  return api.delete(
+    `/topics/${topicId}`
+  );
 };
 
 
@@ -228,6 +254,7 @@ export const deleteTask = (
 export const getChecklist = () => {
   return api.get('/tasks/checklist');
 };
+
 
 // ============================================================
 // DEFAULT EXPORT

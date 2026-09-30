@@ -256,9 +256,12 @@ async def delete_element(db: AsyncSession, element_id: int):
 
 async def get_events(
     db: AsyncSession,
+    project_id: int,
     event_type: Optional[str] = None,
 ):
-    query = select(models.Event)
+    query = select(models.Event).filter(
+        models.Event.project_id == project_id
+    )
 
     if event_type:
         query = query.filter(models.Event.event_type == event_type)
@@ -272,9 +275,35 @@ async def create_event(
     event: schemas.EventCreate,
     element_ids: List[int],
 ):
-    # Создаём событие
+    project_result = await db.execute(
+        select(models.Project).filter(
+            models.Project.id == event.project_id
+        )
+    )
+    project = project_result.scalars().first()
+
+    if not project:
+        raise ValueError(
+            f"Project {event.project_id} not found"
+        )
+
+    if event.topic_id is not None:
+        topic_result = await db.execute(
+            select(models.Topic).filter(
+                models.Topic.id == event.topic_id,
+                models.Topic.project_id == event.project_id,
+            )
+        )
+        topic = topic_result.scalars().first()
+
+        if not topic:
+            raise ValueError(
+                f"Topic {event.topic_id} does not belong to project {event.project_id}"
+            )
+
     db_event = models.Event(
         name=event.name,
+        project_id=event.project_id,
         event_type=event.event_type,
         periodicity=event.periodicity,
         start_date=event.start_date,
@@ -282,15 +311,15 @@ async def create_event(
     )
 
     db.add(db_event)
-
     await db.flush()
 
-    # Создаём связи ElementEvent
     for element_id in element_ids:
-
         result = await db.execute(
-            select(models.Element).filter(
-                models.Element.id == element_id
+            select(models.Element)
+            .join(models.Page, models.Page.id == models.Element.page_id)
+            .filter(
+                models.Element.id == element_id,
+                models.Page.project_id == event.project_id,
             )
         )
 
@@ -300,21 +329,21 @@ async def create_event(
             await db.rollback()
 
             raise ValueError(
-                f"Element {element_id} not found"
+                f"Element {element_id} does not belong to project {event.project_id}"
             )
 
-        association = models.ElementEvent(
-            element_id=element.id,
-            event_id=db_event.id,
+        db.add(
+            models.ElementEvent(
+                element_id=element.id,
+                event_id=db_event.id,
+            )
         )
 
-        db.add(association)
-
     await db.commit()
-
     await db.refresh(db_event)
 
     return db_event
+
 
 async def update_event(
     db: AsyncSession,
@@ -351,6 +380,21 @@ async def update_event(
         else None
     )
 
+    if db_event.topic_id is not None:
+        topic_result = await db.execute(
+            select(models.Topic).filter(
+                models.Topic.id == db_event.topic_id,
+                models.Topic.project_id == db_event.project_id,
+            )
+        )
+        topic = topic_result.scalars().first()
+
+        if not topic:
+            await db.rollback()
+            raise ValueError(
+                f"Topic {db_event.topic_id} does not belong to project {db_event.project_id}"
+            )
+
     # Удаляем старые привязки
     await db.execute(
         delete(models.ElementEvent).where(
@@ -361,8 +405,11 @@ async def update_event(
     # Создаём новые
     for element_id in element_ids:
         element_result = await db.execute(
-            select(models.Element).filter(
-                models.Element.id == element_id
+            select(models.Element)
+            .join(models.Page, models.Page.id == models.Element.page_id)
+            .filter(
+                models.Element.id == element_id,
+                models.Page.project_id == db_event.project_id,
             )
         )
 
@@ -554,9 +601,12 @@ async def detach_event_from_element(
 
 async def get_topics(
     db: AsyncSession,
+    project_id: int,
 ):
     result = await db.execute(
-        select(models.Topic)
+        select(models.Topic).filter(
+            models.Topic.project_id == project_id
+        )
     )
 
     return result.scalars().all()
@@ -564,10 +614,23 @@ async def get_topics(
 
 async def create_topic(
     db: AsyncSession,
-    topic,
+    topic: schemas.TopicCreate,
 ):
+    project_result = await db.execute(
+        select(models.Project).filter(
+            models.Project.id == topic.project_id
+        )
+    )
+    project = project_result.scalars().first()
+
+    if not project:
+        raise ValueError(
+            f"Project {topic.project_id} not found"
+        )
+
     db_topic = models.Topic(
-        name=topic.name.strip()
+        name=topic.name.strip(),
+        project_id=topic.project_id,
     )
 
     db.add(db_topic)
@@ -581,7 +644,7 @@ async def create_topic(
 async def update_topic(
     db: AsyncSession,
     topic_id: int,
-    topic,
+    topic: schemas.TopicUpdate,
 ):
     result = await db.execute(
         select(models.Topic).filter(
