@@ -10,7 +10,6 @@ import {
   getEventRecurrence,
   RECURRENCE_LABELS,
   compareMonthDay,
-  formatMonthDay,
 } from '../utils/eventHelpers';
 
 import pdfMake from 'pdfmake/build/pdfmake';
@@ -20,53 +19,265 @@ const pdfFonts = pdfFontsModule.default || pdfFontsModule;
 
 pdfMake.vfs = pdfFonts.pdfMake?.vfs || pdfFonts.vfs;
 
-// Разворачивает дерево страниц в плоский список
-const flattenPageTree = (tree) => {
+// Нормализует URL страницы для определения вложенности
+const normalizePagePath = (rawUrl) => {
+  if (!rawUrl) {
+    return '';
+  }
+
+  let path = '';
+
+  try {
+    const value = String(rawUrl);
+
+    const parsed = /^https?:\/\//i.test(value)
+      ? new URL(value)
+      : new URL(value, 'http://pdf.local');
+
+    path = parsed.pathname || '';
+  } catch {
+    path = String(rawUrl);
+  }
+
+  path = `/${path}`
+    .replace(/\/{2,}/g, '/')
+    .toLowerCase();
+
+  if (path.length > 1) {
+    path = path.replace(/\/+$/, '');
+  }
+
+  return path || '/';
+};
+
+// Получает первый URL страницы
+const getFirstPagePath = (page) => {
+  const link = page?.links?.find((item) => item?.url);
+
+  return normalizePagePath(link?.url);
+};
+
+// Проверяет, является ли childPath вложенным относительно parentPath
+const isNestedPagePath = (parentPath, childPath) => {
+  if (!parentPath || !childPath || parentPath === childPath) {
+    return false;
+  }
+
+  // Корневая страница "/" является родителем для всех страниц с непустым путём
+  if (parentPath === '/') {
+    return childPath !== '/';
+  }
+
+  return childPath.startsWith(`${parentPath}/`);
+};
+
+// Строит дерево страниц именно для PDF
+const buildPdfPageTree = (pages = []) => {
+  const items = pages.map((page) => ({
+    ...page,
+    children: [],
+    _path: getFirstPagePath(page),
+  }));
+
+  const byId = new Map(
+    items.map((item) => [item.id, item])
+  );
+
+  const tree = [];
+
+  items.forEach((item) => {
+    if (
+      item.parent_page_id != null &&
+      byId.has(item.parent_page_id)
+    ) {
+      byId
+        .get(item.parent_page_id)
+        .children.push(item);
+
+      return;
+    }
+
+    let bestParent = null;
+
+    items.forEach((candidate) => {
+      if (candidate === item) {
+        return;
+      }
+
+      if (
+        candidate.parent_page_id != null &&
+        !byId.has(candidate.parent_page_id)
+      ) {
+      }
+
+      if (
+        !candidate._path ||
+        !item._path ||
+        candidate._path === item._path
+      ) {
+        return;
+      }
+
+      if (
+        !isNestedPagePath(
+          candidate._path,
+          item._path
+        )
+      ) {
+        return;
+      }
+
+      if (
+        !bestParent ||
+        candidate._path.length > bestParent._path.length
+      ) {
+        bestParent = candidate;
+      }
+    });
+
+    if (bestParent) {
+      bestParent.children.push(item);
+    } else {
+      tree.push(item);
+    }
+  });
+
+  return tree;
+};
+
+// Нормализует узел элемента и рекурсивно восстанавливает его дочерние элементы
+const normalizeElementNode = (node) => ({
+  ...node,
+  children: Array.isArray(node?.children)
+    ? node.children.map(normalizeElementNode)
+    : [],
+});
+
+// Преобразует дерево страниц в плоский список, сохраняя порядок вложенности
+const flattenPageTree = (tree = []) => {
   const result = [];
 
-  // Рекурсивно обходит дерево страниц
   const walk = (nodes) => {
-    nodes.forEach((node) => {
+    (nodes || []).forEach((node) => {
       result.push(node);
 
-      if (node.children?.length) {
+      if (node?.children?.length) {
         walk(node.children);
       }
     });
   };
 
-  walk(tree || []);
-
+  walk(tree);
   return result;
 };
 
 // Строит дерево элементов страницы
 const buildElementTree = (elements) => {
-  const map = {};
+  const source = elements || [];
 
-  (elements || []).forEach((element) => {
-    map[element.id] = {
-      ...element,
-      children: [],
-    };
-  });
+  const hasNestedChildren = source.some(
+    (element) =>
+      Array.isArray(element?.children) &&
+      element.children.length > 0
+  );
+
+  if (hasNestedChildren) {
+    return source.map(normalizeElementNode);
+  }
+
+  const map = new Map(
+    source.map((element) => [
+      element.id,
+      {
+        ...element,
+        children: [],
+      },
+    ])
+  );
 
   const tree = [];
 
-  (elements || []).forEach((element) => {
+  source.forEach((element) => {
+    const current = map.get(element.id);
+
+    if (!current) {
+      return;
+    }
+
+    const parentId = element.parent_element_id;
+
     if (
-      element.parent_element_id &&
-      map[element.parent_element_id]
+      parentId != null &&
+      map.has(parentId)
     ) {
-      map[element.parent_element_id].children.push(
-        map[element.id]
-      );
+      map.get(parentId).children.push(current);
     } else {
-      tree.push(map[element.id]);
+      tree.push(current);
     }
   });
 
   return tree;
+};
+
+const formatFullDate = (dateValue) => {
+  if (!dateValue) {
+    return '';
+  }
+
+  const raw = String(dateValue).trim();
+
+  const match = raw.match(
+    /^(\d{4})-(\d{2})-(\d{2})/
+  );
+
+  if (match) {
+    const [, year, month, day] = match;
+    const monthIndex = Number(month) - 1;
+
+    const months = [
+      'января',
+      'февраля',
+      'марта',
+      'апреля',
+      'мая',
+      'июня',
+      'июля',
+      'августа',
+      'сентября',
+      'октября',
+      'ноября',
+      'декабря',
+    ];
+
+    if (months[monthIndex]) {
+      return `${Number(day)} ${months[monthIndex]} ${year}`;
+    }
+  }
+
+  const parsed = new Date(raw);
+
+  if (!Number.isNaN(parsed.getTime())) {
+    const months = [
+      'января',
+      'февраля',
+      'марта',
+      'апреля',
+      'мая',
+      'июня',
+      'июля',
+      'августа',
+      'сентября',
+      'октября',
+      'ноября',
+      'декабря',
+    ];
+
+    return `${parsed.getDate()} ${
+      months[parsed.getMonth()]
+    } ${parsed.getFullYear()}`;
+  }
+
+  return raw;
 };
 
 // Сортирует элементы по порядку или названию
@@ -87,35 +298,50 @@ const sortByOrderOrName = (items = []) =>
     );
   });
 
-// Формирует список страниц для PDF
-const buildSitemapList = (nodes = []) => {
-  return sortByOrderOrName(nodes).map((node) => {
-    const item = {
-      text: node.title || node.name || '',
-    };
+// Формирует иерархический список страниц для PDF
+const buildSitemapList = (nodes = [], level = 0) => {
+  const result = [];
+
+  sortByOrderOrName(nodes).forEach((node) => {
+    const title = node.title || node.name || '';
+
+    result.push({
+      text: title,
+      bold: false,
+      margin: [level * 18, 0, 0, 4],
+    });
 
     if (node.children?.length) {
-      item.ul = buildSitemapList(node.children);
+      result.push(
+        ...buildSitemapList(node.children, level + 1)
+      );
     }
-
-    return item;
   });
+
+  return result;
 };
 
-// Формирует список элементов для PDF
-const buildElementsList = (nodes = []) => {
-  return sortByOrderOrName(nodes).map((node) => {
-    const item = {
-      text: node.name || node.title || '',
+// Формирует иерархический список элементов для PDF
+const buildElementsList = (nodes = [], level = 0) => {
+  const result = [];
+
+  sortByOrderOrName(nodes).forEach((node) => {
+    const name = node.name || node.title || '';
+
+    result.push({
+      text: name,
       bold: node.children?.length > 0,
-    };
+      margin: [level * 18, 0, 0, 4],
+    });
 
     if (node.children?.length) {
-      item.ul = buildElementsList(node.children);
+      result.push(
+        ...buildElementsList(node.children, level + 1)
+      );
     }
-
-    return item;
   });
+
+  return result;
 };
 
 const checkbox = {
@@ -430,7 +656,7 @@ function PdfGenerationSection({
           '';
 
         const dateLabel = date
-          ? formatMonthDay(date)
+          ? formatFullDate(date)
           : '';
 
         regularItems.push({
@@ -637,7 +863,7 @@ function PdfGenerationSection({
     const groups = getRegularGroups();
 
     const list = groups.map((group) => {
-      const date = formatMonthDay(
+      const date = formatFullDate(
         group.date
       );
 
@@ -725,7 +951,7 @@ function PdfGenerationSection({
 
     const content = [
       {
-        text: `Чеклист – ${formatMonthDay(
+        text: `Чеклист – ${formatFullDate(
           group.date
         )}`,
         style: 'checklistHeading',
@@ -1036,8 +1262,13 @@ function PdfGenerationSection({
         pagesByEventId,
       } = await collectPageEventData();
 
+      const pdfPageTree =
+        Array.isArray(pageTree) && pageTree.length
+          ? pageTree
+          : buildPdfPageTree(pages || []);
+
       const flatPages =
-        flattenPageTree(pageTree);
+        flattenPageTree(pdfPageTree);
 
       const regularGroups =
         getRegularGroups();
@@ -1090,7 +1321,7 @@ function PdfGenerationSection({
       });
 
       content.push({
-        ul: buildSitemapList(pageTree),
+        ul: buildSitemapList(pdfPageTree),
         style: 'sitemap',
       });
 
