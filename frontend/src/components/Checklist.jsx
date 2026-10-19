@@ -56,8 +56,20 @@ const PERIODICITY_DAYS = {
   yearly: 365,
 };
 
-// Считает количество дней от указанной даты до текущего дня
-const daysSince = (isoDate) => {
+// На сколько сдвигается дата при выполнении события
+const PERIODICITY_SHIFT = {
+  еженедельно: { days: 7 },
+  weekly: { days: 7 },
+  ежемесячно: { months: 1 },
+  monthly: { months: 1 },
+  'раз в квартал': { months: 3 },
+  quarterly: { months: 3 },
+  ежегодно: { months: 12 },
+  yearly: { months: 12 },
+};
+
+// Разбирает дату формата ГГГГ-ММ-ДД
+const parseIsoDate = (isoDate) => {
   if (!isoDate) return null;
 
   const parts = String(isoDate).split('-').map(Number);
@@ -65,6 +77,45 @@ const daysSince = (isoDate) => {
   if (parts.length < 3 || parts.some(Number.isNaN)) {
     return null;
   }
+
+  return parts;
+};
+
+// Сдвигает дату вперёд на период события
+const addPeriod = (isoDate, recurrence) => {
+  const parts = parseIsoDate(isoDate);
+  const shift = PERIODICITY_SHIFT[recurrence];
+
+  if (!parts || !shift) return null;
+
+  const [year, month, day] = parts;
+
+  if (shift.days) {
+    return new Date(Date.UTC(year, month - 1, day + shift.days))
+      .toISOString()
+      .slice(0, 10);
+  }
+
+  const totalMonths = month - 1 + shift.months;
+  const newYear = year + Math.floor(totalMonths / 12);
+  const newMonth = totalMonths % 12;
+
+  const daysInMonth = new Date(
+    Date.UTC(newYear, newMonth + 1, 0)
+  ).getUTCDate();
+
+  const newDay = Math.min(day, daysInMonth);
+
+  return new Date(Date.UTC(newYear, newMonth, newDay))
+    .toISOString()
+    .slice(0, 10);
+};
+
+// Считает количество дней от указанной даты до текущего дня
+const daysSince = (isoDate) => {
+  const parts = parseIsoDate(isoDate);
+
+  if (!parts) return null;
 
   const [year, month, day] = parts;
 
@@ -88,10 +139,10 @@ const daysSince = (isoDate) => {
 };
 
 // Проверяет, является ли регулярное событие просроченным
-const isRowOverdue = (event) => {
+const isRowOverdue = (event, effectiveDate) => {
   if (isIrregularEvent(event)) return false;
 
-  const date = getEventDate(event);
+  const date = effectiveDate ?? getEventDate(event);
   const recurrence = getEventRecurrence(event);
   const intervalDays = PERIODICITY_DAYS[recurrence];
   const diff = daysSince(date);
@@ -103,13 +154,9 @@ const isRowOverdue = (event) => {
 
 // Форматирует дату для отображения
 const formatDisplayDate = (isoDate) => {
-  if (!isoDate) return '';
+  const parts = parseIsoDate(isoDate);
 
-  const parts = String(isoDate).split('-').map(Number);
-
-  if (parts.length < 3 || parts.some(Number.isNaN)) {
-    return '';
-  }
+  if (!parts) return '';
 
   const [year, month, day] = parts;
 
@@ -280,8 +327,15 @@ const ChecklistsSection = ({
   const [doneIds, setDoneIds] =
     useState(() => new Set());
 
+  // Сдвинутые даты выполненных событий: { [rowId]: 'ГГГГ-ММ-ДД' }
+  const [dateOverrides, setDateOverrides] =
+    useState({});
+
   const storageKey =
     `checklist_done_project_${projectId}`;
+
+  const datesKey =
+    `checklist_dates_project_${projectId}`;
 
   useEffect(() => {
     try {
@@ -300,33 +354,67 @@ const ChecklistsSection = ({
     } catch {
       setDoneIds(new Set());
     }
-  }, [storageKey]);
 
-  // Переключает статус выполнения строки
+    try {
+      const rawDates =
+        window.localStorage.getItem(
+          datesKey
+        );
+
+      setDateOverrides(
+        rawDates
+          ? JSON.parse(rawDates)
+          : {}
+      );
+    } catch {
+      setDateOverrides({});
+    }
+  }, [storageKey, datesKey]);
+
+  // Переключает статус выполнения строки и сдвигает дату события
   const toggleDone = useCallback(
-    (rowId) => {
-      setDoneIds((prev) => {
-        const next = new Set(prev);
+    (row) => {
+      const willBeDone = !doneIds.has(row.id);
 
-        if (next.has(rowId)) {
-          next.delete(rowId);
-        } else {
-          next.add(rowId);
-        }
+      const nextDone = new Set(doneIds);
+      const nextDates = { ...dateOverrides };
 
-        try {
-          window.localStorage.setItem(
-            storageKey,
-            JSON.stringify([...next])
+      if (willBeDone) {
+        nextDone.add(row.id);
+
+        if (!row.isIrregular) {
+          const shifted = addPeriod(
+            row.baseDate,
+            row.recurrence
           );
-        } catch {
-          return next;
-        }
 
-        return next;
-      });
+          if (shifted) {
+            nextDates[row.id] = shifted;
+          }
+        }
+      } else {
+        nextDone.delete(row.id);
+        delete nextDates[row.id];
+      }
+
+      setDoneIds(nextDone);
+      setDateOverrides(nextDates);
+
+      try {
+        window.localStorage.setItem(
+          storageKey,
+          JSON.stringify([...nextDone])
+        );
+
+        window.localStorage.setItem(
+          datesKey,
+          JSON.stringify(nextDates)
+        );
+      } catch {
+        // localStorage недоступен, состояние остаётся только в памяти
+      }
     },
-    [storageKey]
+    [doneIds, dateOverrides, storageKey, datesKey]
   );
 
   // Загружает элементы всех страниц проекта и их события
@@ -439,32 +527,46 @@ const ChecklistsSection = ({
       search.trim().toLowerCase();
 
     return rows
-      .map((row) => ({
-        ...row,
+      .map((row) => {
+        const irregular =
+          isIrregularEvent(row.event);
 
-        label: buildRowLabel(
-          row.elementName,
-          row.event
-        ),
-
-        date: isIrregularEvent(
-          row.event
-        )
+        const baseDate = irregular
           ? ''
-          : getEventDate(row.event),
+          : getEventDate(row.event);
 
-        isIrregular:
-          isIrregularEvent(
+        // Показываем сдвинутую дату, если событие выполнено
+        const date = irregular
+          ? ''
+          : dateOverrides[row.id] ||
+            baseDate;
+
+        return {
+          ...row,
+
+          label: buildRowLabel(
+            row.elementName,
             row.event
           ),
 
-        done: doneIds.has(row.id),
+          baseDate,
+          date,
 
-        overdue:
-          isRowOverdue(
-            row.event
+          recurrence:
+            getEventRecurrence(
+              row.event
+            ),
+
+          isIrregular: irregular,
+
+          done: doneIds.has(row.id),
+
+          overdue: isRowOverdue(
+            row.event,
+            date
           ),
-      }))
+        };
+      })
       .filter((row) => {
         if (typeFilter.length > 0) {
           const type =
@@ -480,6 +582,8 @@ const ChecklistsSection = ({
             return false;
           }
         }
+
+        // Вкладка «Все» не фильтрует по статусу
 
         if (
           activeTab === 'done' &&
@@ -522,12 +626,17 @@ const ChecklistsSection = ({
   }, [
     rows,
     doneIds,
+    dateOverrides,
     typeFilter,
     activeTab,
     search,
   ]);
 
   const tabs = [
+    {
+      id: 'all',
+      label: 'Все',
+    },
     {
       id: 'pending',
       label: 'Не выполнено',
@@ -657,85 +766,94 @@ const ChecklistsSection = ({
               Ничего не найдено
             </p>
           ) : (
-            visibleRows.map((row) => (
-              <div
-                key={row.id}
-                className="flex items-start gap-2 py-1"
-              >
-                <span
-                  className="text-sm font-semibold flex-shrink-0"
-                  style={{
-                    color:
-                      colors.primary,
-                  }}
+            visibleRows.map((row) => {
+              const isAllTab =
+                activeTab === 'all';
+
+              const labelColor =
+                isAllTab &&
+                row.overdue &&
+                !row.done
+                  ? colors.error
+                  : colors.primary;
+
+              return (
+                <div
+                  key={row.id}
+                  className="flex items-start gap-2 py-1"
                 >
-                  {row.isIrregular
-                    ? 'Н'
-                    : 'Р'}
-                </span>
-
-                <button
-                  type="button"
-                  onClick={() =>
-                    toggleDone(
-                      row.id
-                    )
-                  }
-                  className="w-5 h-5 rounded-md flex items-center justify-center flex-shrink-0 cursor-pointer transition-all mt-0.5"
-                  style={{
-                    backgroundColor:
-                      row.done
-                        ? colors.primary
-                        : colors.white,
-
-                    border: `1.5px solid ${
-                      row.done
-                        ? colors.primary
-                        : colors.secondaryText
-                    }`,
-                  }}
-                  title={
-                    row.done
-                      ? 'Отметить невыполненным'
-                      : 'Отметить выполненным'
-                  }
-                >
-                  {row.done && (
-                    <Check
-                      size={14}
-                      strokeWidth={3}
-                      color={
-                        colors.white
-                      }
-                    />
-                  )}
-                </button>
-
-                <span
-                  className="text-sm flex-1"
-                  style={{
-                    color:
-                      colors.primary,
-                  }}
-                >
-                  {row.label}
-                </span>
-
-                {row.date && (
                   <span
-                    className="text-xs whitespace-nowrap flex-shrink-0 pt-0.5"
+                    className="text-sm font-semibold flex-shrink-0"
                     style={{
                       color:
-                        colors.secondaryText,
+                        colors.primary,
                     }}
                   >
-                    {formatDisplayDate(
-                      row.date
-                    )}
+                    {row.isIrregular
+                      ? 'Н'
+                      : 'Р'}
                   </span>
-                )}
-              </div>
-            ))
+
+                  <button
+                    type="button"
+                    onClick={() =>
+                      toggleDone(row)
+                    }
+                    className="w-5 h-5 rounded-md flex items-center justify-center flex-shrink-0 cursor-pointer transition-all mt-0.5"
+                    style={{
+                      backgroundColor:
+                        row.done
+                          ? colors.primary
+                          : colors.white,
+
+                      border: `1.5px solid ${
+                        row.done
+                          ? colors.primary
+                          : colors.secondaryText
+                      }`,
+                    }}
+                    title={
+                      row.done
+                        ? 'Отметить невыполненным'
+                        : 'Отметить выполненным'
+                    }
+                  >
+                    {row.done && (
+                      <Check
+                        size={14}
+                        strokeWidth={3}
+                        color={
+                          colors.white
+                        }
+                      />
+                    )}
+                  </button>
+
+                  <span
+                    className="text-sm flex-1"
+                    style={{
+                      color: labelColor,
+                    }}
+                  >
+                    {row.label}
+                  </span>
+
+                  {row.date && (
+                    <span
+                      className="text-xs whitespace-nowrap flex-shrink-0 pt-0.5"
+                      style={{
+                        color:
+                          colors.secondaryText,
+                      }}
+                    >
+                      {formatDisplayDate(
+                        row.date
+                      )}
+                    </span>
+                  )}
+                </div>
+              );
+            })
           )}
         </div>
       </div>

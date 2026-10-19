@@ -20,7 +20,7 @@ import {
   attachEventToElement,
   deleteEventElement,
 } from '../services/api';
-
+import { Check } from 'lucide-react';
 let tmpCounter = 0;
 
 const tmpId = () => `tmp_${Date.now()}_${++tmpCounter}`;
@@ -1919,7 +1919,7 @@ const AddPageModal = ({
             onChange={(e) =>
               setEventSearch(e.target.value)
             }
-            placeholder="Поиск.."
+            placeholder="Поиск среди всех событий.."
             className="flex-1 outline-none border-none bg-transparent text-base"
             style={{
               color: colors.black,
@@ -2059,32 +2059,41 @@ const AddPageModal = ({
                   )}
 
                   <button
+                    type="button"
                     onClick={() =>
                       selectedElementId &&
-                      toggleEventSelection(
-                        event.id
-                      )
+                      toggleEventSelection(event.id)
                     }
-                    disabled={
-                      !selectedElementId
-                    }
-                    className="w-6 h-6 rounded flex-shrink-0"
+                    disabled={!selectedElementId}
+                    className="w-5 h-5 rounded-md flex items-center justify-center flex-shrink-0 transition-all"
                     style={{
-                      backgroundColor:
+                      backgroundColor: isLinked
+                        ? colors.primary
+                        : colors.white,
+                      border: `1.5px solid ${
                         isLinked
                           ? colors.primary
-                          : colors.white,
-                      border: `1px solid ${colors.primary}`,
-                      cursor:
-                        selectedElementId
-                          ? 'pointer'
-                          : 'not-allowed',
-                      opacity:
-                        selectedElementId
-                          ? 1
-                          : 0.5,
+                          : colors.secondaryText
+                      }`,
+                      cursor: selectedElementId
+                        ? 'pointer'
+                        : 'not-allowed',
+                      opacity: selectedElementId ? 1 : 0.5,
                     }}
-                  />
+                    title={
+                      isLinked
+                        ? 'Отвязать от элемента'
+                        : 'Привязать к элементу'
+                    }
+                  >
+                    {isLinked && (
+                      <Check
+                        size={14}
+                        strokeWidth={3}
+                        color={colors.white}
+                      />
+                    )}
+                  </button>
                 </div>
               );
             })

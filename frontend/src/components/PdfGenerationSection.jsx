@@ -219,7 +219,31 @@ const buildElementTree = (elements) => {
   return tree;
 };
 
-const formatFullDate = (dateValue) => {
+const MONTHS_GENITIVE = [
+  'января',
+  'февраля',
+  'марта',
+  'апреля',
+  'мая',
+  'июня',
+  'июля',
+  'августа',
+  'сентября',
+  'октября',
+  'ноября',
+  'декабря',
+];
+
+// Проверяет, что событие ежегодное
+const isYearlyRecurrence = (recurrence) => {
+  const value = String(recurrence || '')
+    .trim()
+    .toLowerCase();
+
+  return value === 'ежегодно' || value === 'yearly';
+};
+
+const formatFullDate = (dateValue, withYear = true) => {
   if (!dateValue) {
     return '';
   }
@@ -232,53 +256,34 @@ const formatFullDate = (dateValue) => {
 
   if (match) {
     const [, year, month, day] = match;
-    const monthIndex = Number(month) - 1;
+    const monthName =
+      MONTHS_GENITIVE[Number(month) - 1];
 
-    const months = [
-      'января',
-      'февраля',
-      'марта',
-      'апреля',
-      'мая',
-      'июня',
-      'июля',
-      'августа',
-      'сентября',
-      'октября',
-      'ноября',
-      'декабря',
-    ];
-
-    if (months[monthIndex]) {
-      return `${Number(day)} ${months[monthIndex]} ${year}`;
+    if (monthName) {
+      return withYear
+        ? `${Number(day)} ${monthName} ${year}`
+        : `${Number(day)} ${monthName}`;
     }
   }
 
   const parsed = new Date(raw);
 
   if (!Number.isNaN(parsed.getTime())) {
-    const months = [
-      'января',
-      'февраля',
-      'марта',
-      'апреля',
-      'мая',
-      'июня',
-      'июля',
-      'августа',
-      'сентября',
-      'октября',
-      'ноября',
-      'декабря',
-    ];
+    const base = `${parsed.getDate()} ${
+      MONTHS_GENITIVE[parsed.getMonth()]
+    }`;
 
-    return `${parsed.getDate()} ${
-      months[parsed.getMonth()]
-    } ${parsed.getFullYear()}`;
+    return withYear
+      ? `${base} ${parsed.getFullYear()}`
+      : base;
   }
 
   return raw;
 };
+
+// Форматирует дату события: у ежегодных событий год не показывается
+const formatEventDate = (date, recurrence) =>
+  formatFullDate(date, !isYearlyRecurrence(recurrence));
 
 // Сортирует элементы по порядку или названию
 const sortByOrderOrName = (items = []) =>
@@ -298,6 +303,71 @@ const sortByOrderOrName = (items = []) =>
     );
   });
 
+// ---------- Ссылки и навигация ----------
+
+const LINK_COLOR = '#1155cc';
+
+// Внутренняя ссылка на якорь (id) в документе
+const internalLink = (text, dest, extra = {}) => ({
+  text,
+  linkToDestination: dest,
+  style: 'link',
+  ...extra,
+});
+
+// Внешняя ссылка (только абсолютные http/https URL)
+const externalLink = (url) =>
+  /^https?:\/\//i.test(url)
+    ? { text: url, link: url, style: 'link' }
+    : { text: url };
+
+// Получает ссылки страницы в виде строки
+const getPageUrl = (page) => {
+  if (!page?.links?.length) {
+    return '';
+  }
+
+  return page.links
+    .map((link) => link.url)
+    .filter(Boolean)
+    .join(', ');
+};
+
+// "(url1, url2)" с кликабельными URL
+const buildUrlInline = (page, extra = {}) => {
+  const urls = (page?.links || [])
+    .map((link) => link.url)
+    .filter(Boolean);
+
+  if (!urls.length) {
+    return null;
+  }
+
+  const parts = ['('];
+
+  urls.forEach((url, i) => {
+    if (i) {
+      parts.push(', ');
+    }
+
+    parts.push(externalLink(url));
+  });
+
+  parts.push(')');
+
+  return { text: parts, ...extra };
+};
+
+// Ссылка «назад»
+const backLink = (label, dest) =>
+  internalLink(label, dest, {
+    fontSize: 11,
+    margin: [0, 0, 0, 10],
+  });
+
+// Якорь страницы сайта
+const pageAnchor = (page) => `page-${page.id}`;
+
 // Формирует иерархический список страниц для PDF
 const buildSitemapList = (nodes = [], level = 0) => {
   const result = [];
@@ -305,11 +375,11 @@ const buildSitemapList = (nodes = [], level = 0) => {
   sortByOrderOrName(nodes).forEach((node) => {
     const title = node.title || node.name || '';
 
-    result.push({
-      text: title,
-      bold: false,
-      margin: [level * 18, 0, 0, 4],
-    });
+    result.push(
+      internalLink(title, pageAnchor(node), {
+        margin: [level * 18, 0, 0, 4],
+      })
+    );
 
     if (node.children?.length) {
       result.push(
@@ -367,18 +437,6 @@ const checkbox = {
   ],
   width: 12,
   height: 12,
-};
-
-// Получает ссылки страницы в виде строки
-const getPageUrl = (page) => {
-  if (!page?.links?.length) {
-    return '';
-  }
-
-  return page.links
-    .map((link) => link.url)
-    .filter(Boolean)
-    .join(', ');
 };
 
 // Получает описание события
@@ -538,7 +596,10 @@ function PdfGenerationSection({
           return;
         }
 
-        const key = `${date}_${recurrence}`;
+        // Ежегодные события группируются только по месяцу и дню
+        const key = isYearlyRecurrence(recurrence)
+          ? `${String(date).slice(5, 10)}_${recurrence}`
+          : `${date}_${recurrence}`;
 
         if (!groups[key]) {
           groups[key] = {
@@ -584,13 +645,19 @@ function PdfGenerationSection({
     return [
       {
         text: 'Страницы сайта',
+        id: 'sec-pages',
         style: 'mainHeading',
         pageBreak: 'before',
       },
 
+      backLink('К карте сайта', 'sec-sitemap'),
+
       {
-        ol: flatPages.map(
-          (page) => page.title || ''
+        ol: flatPages.map((page) =>
+          internalLink(
+            page.title || '',
+            pageAnchor(page)
+          )
         ),
         style: 'pageList',
       },
@@ -609,6 +676,15 @@ function PdfGenerationSection({
 
     const elementTree =
       buildElementTree(elements);
+
+    // Индекс регулярного чеклиста для каждого события
+    const regularGroupIndexByEventId = {};
+
+    getRegularGroups().forEach((group, idx) => {
+      group.items.forEach((ev) => {
+        regularGroupIndexByEventId[ev.id] = idx;
+      });
+    });
 
     const regularByElement = {};
     const irregularByElement = {};
@@ -656,12 +732,13 @@ function PdfGenerationSection({
           '';
 
         const dateLabel = date
-          ? formatFullDate(date)
+          ? formatEventDate(date, recurrence)
           : '';
 
         regularItems.push({
           element: element.name,
           event: getEventTitle(event),
+          eventId: event.id,
           description:
             getRegularDescription(event),
           label:
@@ -677,10 +754,15 @@ function PdfGenerationSection({
         irregularItems.push({
           element: element.name,
           event: getEventTitle(event),
+          eventId: event.id,
           description:
             getEventDescription(event),
         });
       });
+
+    const urlInline = buildUrlInline(page, {
+      style: 'detailUrl',
+    });
 
     const content = [
       {
@@ -689,21 +771,17 @@ function PdfGenerationSection({
             text: `${index}. ${
               page.title || ''
             }`,
+            id: pageAnchor(page),
             style: 'detailHeading',
           },
 
-          ...(getPageUrl(page)
-            ? [
-                {
-                  text: `(${getPageUrl(page)})`,
-                  style: 'detailUrl',
-                },
-              ]
-            : []),
+          ...(urlInline ? [urlInline] : []),
         ],
 
         pageBreak: 'before',
       },
+
+      backLink('К списку страниц', 'sec-pages'),
     ];
 
     if (page.links?.length) {
@@ -716,7 +794,8 @@ function PdfGenerationSection({
       content.push({
         ul: page.links
           .map((link) => link.url)
-          .filter(Boolean),
+          .filter(Boolean)
+          .map(externalLink),
         style: 'linkList',
         margin: [18, 0, 0, 12],
       });
@@ -749,15 +828,21 @@ function PdfGenerationSection({
 
     if (regularItems.length) {
       regularItems.forEach((item) => {
+        const groupIdx =
+          regularGroupIndexByEventId[item.eventId];
+
         content.push({
           text: [
             {
               text: `${item.element} – `,
               bold: false,
             },
-            {
-              text: item.event,
-            },
+            groupIdx !== undefined
+              ? internalLink(
+                  item.event,
+                  `reg-${groupIdx}`
+                )
+              : { text: item.event },
             ...(item.label
               ? [
                   {
@@ -793,9 +878,10 @@ function PdfGenerationSection({
                 {
                   text: `${item.element} – `,
                 },
-                {
-                  text: item.event,
-                },
+                internalLink(
+                  item.event,
+                  `irr-${item.eventId}`
+                ),
               ],
             },
 
@@ -830,6 +916,7 @@ function PdfGenerationSection({
     return [
       {
         text: 'Чеклисты событий',
+        id: 'sec-checklists',
         style: 'mainHeading',
         pageBreak: 'before',
       },
@@ -850,8 +937,14 @@ function PdfGenerationSection({
 
       {
         ol: [
-          'Регулярные события',
-          'Нерегулярные события',
+          internalLink(
+            'Регулярные события',
+            'sec-regular'
+          ),
+          internalLink(
+            'Нерегулярные события',
+            'sec-irregular'
+          ),
         ],
         style: 'bodyText',
       },
@@ -862,9 +955,10 @@ function PdfGenerationSection({
   const buildRegularChecklistIndex = () => {
     const groups = getRegularGroups();
 
-    const list = groups.map((group) => {
-      const date = formatFullDate(
-        group.date
+    const list = groups.map((group, idx) => {
+      const date = formatEventDate(
+        group.date,
+        group.recurrence
       );
 
       const recurrence =
@@ -872,17 +966,26 @@ function PdfGenerationSection({
         group.recurrence ||
         '';
 
-      return recurrence
-        ? `${date} – ${recurrence}`
-        : date;
+      return internalLink(
+        recurrence
+          ? `${date} – ${recurrence}`
+          : date,
+        `reg-${idx}`
+      );
     });
 
     return [
       {
         text: 'Регулярные события – Чеклисты',
+        id: 'sec-regular',
         style: 'mainHeading',
         pageBreak: 'before',
       },
+
+      backLink(
+        'К разделу «Чеклисты событий»',
+        'sec-checklists'
+      ),
 
       {
         text:
@@ -916,7 +1019,8 @@ function PdfGenerationSection({
   // Формирует отдельный регулярный чеклист
   const buildRegularChecklistPage = (
     group,
-    pagesByEventId
+    pagesByEventId,
+    idx
   ) => {
     const pageGroups = {};
 
@@ -951,12 +1055,19 @@ function PdfGenerationSection({
 
     const content = [
       {
-        text: `Чеклист – ${formatFullDate(
-          group.date
+        text: `Чеклист – ${formatEventDate(
+          group.date,
+          group.recurrence
         )}`,
+        id: `reg-${idx}`,
         style: 'checklistHeading',
         pageBreak: 'before',
       },
+
+      backLink(
+        'К списку регулярных обновлений',
+        'sec-regular'
+      ),
 
       ...(recurrenceLabel
         ? [
@@ -999,21 +1110,24 @@ function PdfGenerationSection({
       const page = entry.page;
 
       content.push({
-        text: `${index + 1}. ${
-          page.title || ''
-        }`,
+        text: [
+          { text: `${index + 1}. ` },
+          internalLink(
+            page.title || '',
+            pageAnchor(page)
+          ),
+        ],
         style: 'eventPageHeading',
         margin: [0, 12, 0, 3],
       });
 
-      const url = getPageUrl(page);
+      const urlInline = buildUrlInline(page, {
+        style: 'eventPageUrl',
+        margin: [18, 0, 0, 5],
+      });
 
-      if (url) {
-        content.push({
-          text: `(${url})`,
-          style: 'eventPageUrl',
-          margin: [18, 0, 0, 5],
-        });
+      if (urlInline) {
+        content.push(urlInline);
       }
 
       entry.elements.forEach(
@@ -1065,9 +1179,15 @@ function PdfGenerationSection({
     const content = [
       {
         text: 'Нерегулярные события – Чеклисты',
+        id: 'sec-irregular',
         style: 'mainHeading',
         pageBreak: 'before',
       },
+
+      backLink(
+        'К разделу «Чеклисты событий»',
+        'sec-checklists'
+      ),
 
       {
         text:
@@ -1103,9 +1223,11 @@ function PdfGenerationSection({
         });
 
         content.push({
-          ol: topicEvents.map(
-            (event) =>
-              getEventSortName(event)
+          ol: topicEvents.map((event) =>
+            internalLink(
+              getEventSortName(event),
+              `irr-${event.id}`
+            )
           ),
           style: 'bodyText',
           margin: [18, 0, 0, 10],
@@ -1157,9 +1279,15 @@ function PdfGenerationSection({
         text: `Чеклист – ${getEventTitle(
           event
         )}`,
+        id: `irr-${event.id}`,
         style: 'checklistHeading',
         pageBreak: 'before',
       },
+
+      backLink(
+        'К списку событий',
+        'sec-irregular'
+      ),
 
       {
         text: `Тема: ${topicName}`,
@@ -1192,21 +1320,24 @@ function PdfGenerationSection({
       const page = entry.page;
 
       content.push({
-        text: `${index + 1}. ${
-          page.title || ''
-        }`,
+        text: [
+          { text: `${index + 1}. ` },
+          internalLink(
+            page.title || '',
+            pageAnchor(page)
+          ),
+        ],
         style: 'eventPageHeading',
         margin: [0, 10, 0, 3],
       });
 
-      const url = getPageUrl(page);
+      const urlInline = buildUrlInline(page, {
+        style: 'eventPageUrl',
+        margin: [18, 0, 0, 5],
+      });
 
-      if (url) {
-        content.push({
-          text: `(${url})`,
-          style: 'eventPageUrl',
-          margin: [18, 0, 0, 5],
-        });
+      if (urlInline) {
+        content.push(urlInline);
       }
 
       entry.elements.forEach(
@@ -1305,9 +1436,33 @@ function PdfGenerationSection({
 
           {
             ol: [
-              'Раздел «Карта сайта» - общее понимание страниц и тематик контента',
-              'Раздел «Страницы сайта» - детальное рассмотрение каждой страницы по содержанию контента, список динамических блоков.',
-              'Раздел «Чеклисты событий» - продуманные списки для регулярного обновления информации на всех страниц сайта.',
+              {
+                text: [
+                  internalLink(
+                    'Раздел «Карта сайта»',
+                    'sec-sitemap'
+                  ),
+                  ' - общее понимание страниц и тематик контента',
+                ],
+              },
+              {
+                text: [
+                  internalLink(
+                    'Раздел «Страницы сайта»',
+                    'sec-pages'
+                  ),
+                  ' - детальное рассмотрение каждой страницы по содержанию контента, список динамических блоков.',
+                ],
+              },
+              {
+                text: [
+                  internalLink(
+                    'Раздел «Чеклисты событий»',
+                    'sec-checklists'
+                  ),
+                  ' - продуманные списки для регулярного обновления информации на всех страниц сайта.',
+                ],
+              },
             ],
             style: 'coverText',
           },
@@ -1316,6 +1471,7 @@ function PdfGenerationSection({
 
       content.push({
         text: 'Карта сайта',
+        id: 'sec-sitemap',
         style: 'mainHeading',
         pageBreak: 'before',
       });
@@ -1352,11 +1508,12 @@ function PdfGenerationSection({
         ...buildRegularChecklistIndex()
       );
 
-      regularGroups.forEach((group) => {
+      regularGroups.forEach((group, idx) => {
         content.push(
           ...buildRegularChecklistPage(
             group,
-            pagesByEventId
+            pagesByEventId,
+            idx
           )
         );
       });
@@ -1393,6 +1550,11 @@ function PdfGenerationSection({
         footer,
 
         styles: {
+          link: {
+            color: LINK_COLOR,
+            decoration: 'underline',
+          },
+
           coverHeading: {
             fontSize: 28,
             bold: false,

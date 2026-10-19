@@ -1427,7 +1427,10 @@ function ProjectPage() {
                 События
               </h2>
 
-              <div className="mb-12">
+              <div className="mb-12" style={{
+                    border: `1px solid ${colors.lightGray}`,
+                    borderRadius: 12,
+                    padding: 16}}>
                 <h3
                   className="text-xl font-semibold mb-2"
                   style={{
@@ -1522,7 +1525,11 @@ function ProjectPage() {
                 </div>
               </div>
 
-              <div>
+              <div style={{
+                border: `1px solid ${colors.lightGray}`,
+                borderRadius: 12,
+                padding: 16,
+              }}>
                 <h3
                   className="text-xl font-semibold mb-2"
                   style={{
