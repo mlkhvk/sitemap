@@ -3,12 +3,11 @@ services:
   db:
     image: postgres:16
     container_name: sitemap-db
+    restart: unless-stopped
     environment:
       POSTGRES_DB: mapsite
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: 1234
-    ports:
-      - "5432:5432"
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -23,8 +22,9 @@ services:
       context: .
       dockerfile: app/Dockerfile
     container_name: sitemap-backend
-    ports:
-      - "8000:8000"
+    restart: unless-stopped
+    environment:
+      DB_PASSWORD: ${DB_PASSWORD}
     depends_on:
       db:
         condition: service_healthy
@@ -34,11 +34,11 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
     container_name: sitemap-frontend
+    restart: unless-stopped
     ports:
       - "80:80"
     depends_on:
       - backend
-
 
 volumes:
   postgres_data:

@@ -1,3 +1,5 @@
+import os
+
 from sqlalchemy.ext.asyncio import (
     create_async_engine,
     AsyncSession,
@@ -6,9 +8,17 @@ from sqlalchemy.ext.asyncio import (
 from sqlalchemy.orm import declarative_base
 
 
-DATABASE_URL = "postgresql+asyncpg://postgres:1234@db:5432/mapsite"
+DB_PASSWORD = os.environ["DB_PASSWORD"]
 
-engine = create_async_engine(DATABASE_URL)
+DATABASE_URL = (
+    f"postgresql+asyncpg://postgres:{DB_PASSWORD}@db:5432/mapsite"
+)
+
+engine = create_async_engine(
+    DATABASE_URL,
+    pool_pre_ping=True,
+    pool_recycle=1800,
+)
 
 SessionLocal = async_sessionmaker(
     engine,
@@ -19,6 +29,7 @@ SessionLocal = async_sessionmaker(
 )
 
 Base = declarative_base()
+
 
 async def get_db():
     async with SessionLocal() as db:
