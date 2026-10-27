@@ -141,7 +141,11 @@ function PageDetail() {
                 periodicity: event.periodicity,
               });
             } else {
-              irregular.push(item);
+              irregular.push({
+                ...item,
+                description:
+                  event.description || '',
+              });
             }
           });
         }
@@ -462,20 +466,37 @@ function PageDetail() {
                       (item) => (
                         <div
                           key={item.key}
+                          className="mb-1"
                           style={{
                             color:
                               colors.primary,
                           }}
                         >
-                          • {item.label}
-                          {' - '}
-                          {item.eventName}
+                          <div>
+                            • {item.label}
+                            {' - '}
+                            {item.eventName}
 
-                          {item.dueDate
-                            ? ` - ${formatDate(
-                                item.dueDate
-                              )}`
-                            : ''}
+                            {item.dueDate
+                              ? ` - ${formatDate(
+                                  item.dueDate
+                                )}`
+                              : ''}
+                          </div>
+
+                          {item.description && (
+                            <div
+                              className="text-xl"
+                              style={{
+                                paddingLeft:
+                                  '20px',
+                                color:
+                                  colors.secondaryText,
+                              }}
+                            >
+                              {item.description}
+                            </div>
+                          )}
                         </div>
                       )
                     )

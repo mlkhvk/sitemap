@@ -475,6 +475,10 @@ function ProjectPage() {
       matchesSearchValue(
         [topicName],
         normalizedTerm
+      ) ||
+      matchesSearchValue(
+        [event.description],
+        normalizedTerm
       )
     );
   };
@@ -769,7 +773,7 @@ function ProjectPage() {
               (event) => (
                 <li
                   key={event.id}
-                  className="flex items-center gap-2 py-0.5"
+                  className="py-0.5"
                   style={{
                     paddingLeft:
                       '20px',
@@ -777,43 +781,59 @@ function ProjectPage() {
                       colors.primary,
                   }}
                 >
-                  <span>•</span>
+                  <div className="flex items-center gap-2">
+                    <span>•</span>
 
-                  <span>
-                    {getEventTitle(event)}
-                  </span>
+                    <span>
+                      {getEventTitle(event)}
+                    </span>
 
-                  <button
-                    type="button"
-                    onClick={(
-                      clickEvent
-                    ) =>
-                      handleOpenEditEvent(
-                        event,
+                    <button
+                      type="button"
+                      onClick={(
                         clickEvent
-                      )
-                    }
-                    className="p-1 rounded hover:text-blue-600 transition cursor-pointer"
-                    title="Редактировать событие"
-                  >
-                    <Pencil size={16} />
-                  </button>
+                      ) =>
+                        handleOpenEditEvent(
+                          event,
+                          clickEvent
+                        )
+                      }
+                      className="p-1 rounded hover:text-blue-600 transition cursor-pointer"
+                      title="Редактировать событие"
+                    >
+                      <Pencil size={16} />
+                    </button>
 
-                  <button
-                    type="button"
-                    onClick={(
-                      clickEvent
-                    ) =>
-                      handleDeleteEvent(
-                        event.id,
+                    <button
+                      type="button"
+                      onClick={(
                         clickEvent
-                      )
-                    }
-                    className="p-1 rounded hover:text-red-500 transition cursor-pointer"
-                    title="Удалить событие"
-                  >
-                    <Trash2 size={16} />
-                  </button>
+                      ) =>
+                        handleDeleteEvent(
+                          event.id,
+                          clickEvent
+                        )
+                      }
+                      className="p-1 rounded hover:text-red-500 transition cursor-pointer"
+                      title="Удалить событие"
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
+
+                  {event.description && (
+                    <div
+                      className="text-sm"
+                      style={{
+                        paddingLeft:
+                          '16px',
+                        color:
+                          colors.secondaryText,
+                      }}
+                    >
+                      {event.description}
+                    </div>
+                  )}
                 </li>
               )
             )}
@@ -1713,6 +1733,8 @@ function EventModal({
   editingEvent,
 }) {
   const [title, setTitle] = useState('');
+  const [description, setDescription] =
+    useState('');
   const [date, setDate] = useState('');
   const [recurrence, setRecurrence] =
     useState('ежегодно');
@@ -1743,6 +1765,7 @@ function EventModal({
 
       if (!editingEvent) {
         setTitle('');
+        setDescription('');
         setDate('');
         setRecurrence('ежегодно');
         setTopicId('');
@@ -1754,6 +1777,10 @@ function EventModal({
         editingEvent.name ??
         editingEvent.title ??
         ''
+      );
+
+      setDescription(
+        editingEvent.description ?? ''
       );
 
       setDate(
@@ -2156,6 +2183,11 @@ function EventModal({
             mode === 'regular'
               ? date
               : null,
+          description:
+            mode === 'irregular'
+              ? description.trim() ||
+                null
+              : null,
           topic_id:
             mode === 'irregular'
               ? Number(topicId)
@@ -2310,37 +2342,57 @@ function EventModal({
               />
             </div>
           ) : (
-            <select
-              value={topicId}
-              onChange={(event) =>
-                setTopicId(
-                  event.target.value
-                )
-              }
-              className="border rounded-md px-3 py-2 bg-white"
-              style={{
-                borderColor:
-                  colors.lightGray,
-                color:
-                  colors.black,
-              }}
-              required
-            >
-              <option value="">
-                Выберите тему
-              </option>
+            <>
+              <select
+                value={topicId}
+                onChange={(event) =>
+                  setTopicId(
+                    event.target.value
+                  )
+                }
+                className="border rounded-md px-3 py-2 bg-white"
+                style={{
+                  borderColor:
+                    colors.lightGray,
+                  color:
+                    colors.black,
+                }}
+                required
+              >
+                <option value="">
+                  Выберите тему
+                </option>
 
-              {topics.map(
-                (topic) => (
-                  <option
-                    key={topic.id}
-                    value={topic.id}
-                  >
-                    {topic.name}
-                  </option>
-                )
-              )}
-            </select>
+                {topics.map(
+                  (topic) => (
+                    <option
+                      key={topic.id}
+                      value={topic.id}
+                    >
+                      {topic.name}
+                    </option>
+                  )
+                )}
+              </select>
+
+              <textarea
+                value={description}
+                onChange={(event) =>
+                  setDescription(
+                    event.target.value
+                  )
+                }
+                placeholder="Описание события (необязательно)"
+                rows={3}
+                className="border rounded-md px-3 py-2 resize-none"
+                style={{
+                  borderColor:
+                    colors.lightGray,
+                  color:
+                    colors.black,
+                }}
+              />
+            </>
           )}
 
           <div

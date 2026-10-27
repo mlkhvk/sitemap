@@ -66,6 +66,7 @@ class EventCreate(BaseModel):
     event_type: str
     periodicity: Optional[str] = None
     start_date: Optional[date] = None
+    description: Optional[str] = None
     topic_id: Optional[int] = None
 
 
@@ -76,6 +77,7 @@ class EventResponse(BaseModel):
     event_type: str
     periodicity: Optional[str]
     start_date: Optional[date]
+    description: Optional[str] = None
     topic_id: Optional[int]
 
     class Config:
@@ -113,6 +115,7 @@ class EventUpdate(BaseModel):
     event_type: str
     periodicity: Optional[str] = None
     start_date: Optional[date] = None
+    description: Optional[str] = None
     topic_id: Optional[int] = None
 
 

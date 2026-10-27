@@ -8,6 +8,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app import models, schemas
 
 
+# Приводит описание к единому виду: пустая строка превращается в None
+def normalize_description(value: Optional[str]) -> Optional[str]:
+    if value is None:
+        return None
+
+    value = value.strip()
+
+    return value or None
+
+
 # Получает список проектов
 async def get_projects(
     db: AsyncSession,
@@ -309,6 +319,12 @@ async def create_event(
         event_type=event.event_type,
         periodicity=event.periodicity,
         start_date=event.start_date,
+        # Описание хранится только у нерегулярных событий
+        description=(
+            normalize_description(event.description)
+            if event.event_type == "irregular"
+            else None
+        ),
         topic_id=event.topic_id,
     )
 
@@ -377,6 +393,13 @@ async def update_event(
     db_event.start_date = (
         event.start_date
         if event.event_type == "regular"
+        else None
+    )
+
+    # Описание хранится только у нерегулярных событий
+    db_event.description = (
+        normalize_description(event.description)
+        if event.event_type == "irregular"
         else None
     )
 

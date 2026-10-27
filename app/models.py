@@ -341,6 +341,12 @@ class Event(Base):
         nullable=True,
     )
 
+    # Описание нерегулярного события
+    description = Column(
+        Text,
+        nullable=True,
+    )
+
     topic_id = Column(
         BigInteger,
         ForeignKey(

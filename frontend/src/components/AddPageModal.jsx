@@ -335,6 +335,8 @@ const AddPageModal = ({
 
   const [eventType, setEventType] = useState('irregular');
   const [newEventName, setNewEventName] = useState('');
+  const [newEventDescription, setNewEventDescription] =
+    useState('');
   const [newEventPeriodicity, setNewEventPeriodicity] =
     useState('Ежегодно');
   const [newEventDate, setNewEventDate] = useState('');
@@ -461,6 +463,7 @@ const AddPageModal = ({
       setSubElementName('');
       setEventType('irregular');
       setNewEventName('');
+      setNewEventDescription('');
       setNewEventPeriodicity('Ежегодно');
       setNewEventDate('');
       setEventSearch('');
@@ -483,6 +486,7 @@ const AddPageModal = ({
       setSubElementName('');
       setEventType('irregular');
       setNewEventName('');
+      setNewEventDescription('');
       setNewEventPeriodicity('Ежегодно');
       setNewEventDate('');
       setEventSearch('');
@@ -622,15 +626,18 @@ const AddPageModal = ({
             id: tmpId(),
             name: newEventName.trim(),
             event_type: 'irregular',
+            description: newEventDescription.trim(),
           };
 
     setExistingEvents((prev) => [...prev, newEvent]);
     setNewEventName('');
+    setNewEventDescription('');
     setNewEventDate('');
     setScheduleOpen(false);
   }, [
     eventType,
     newEventName,
+    newEventDescription,
     newEventPeriodicity,
     newEventDate,
   ]);
@@ -881,6 +888,7 @@ const AddPageModal = ({
                       .toLowerCase() || null,
                   start_date:
                     event.start_date || null,
+                  description: null,
                   topic_id: null,
                 }
               : {
@@ -889,6 +897,9 @@ const AddPageModal = ({
                   event_type: 'irregular',
                   periodicity: null,
                   start_date: null,
+                  description:
+                    (event.description || '').trim() ||
+                    null,
                   topic_id: null,
                 };
 
@@ -1860,6 +1871,32 @@ const AddPageModal = ({
           </button>
         </div>
 
+        {eventType === 'irregular' && (
+          <textarea
+            value={newEventDescription}
+            onChange={(e) =>
+              setNewEventDescription(
+                e.target.value
+              )
+            }
+            placeholder="Описание события (необязательно)"
+            rows={2}
+            className="w-full px-4 py-3 rounded-lg text-base outline-none transition-colors bg-white mb-2 resize-none"
+            style={{
+              border: `1px solid ${colors.lightGray}`,
+              color: colors.black,
+            }}
+            onFocus={(e) =>
+              (e.target.style.borderColor =
+                colors.primary)
+            }
+            onBlur={(e) =>
+              (e.target.style.borderColor =
+                colors.lightGray)
+            }
+          />
+        )}
+
         <div className="flex gap-2 mb-4">
           <button
             onClick={() =>
@@ -1954,146 +1991,189 @@ const AddPageModal = ({
 
               const isLocal = isTmp(event.id);
 
+              const isIrregularEvent =
+                event.event_type ===
+                'irregular';
+
               return (
                 <div
                   key={event.id}
-                  className="flex items-center gap-2 px-3 py-2.5 rounded-lg mb-2"
+                  className="px-3 py-2.5 rounded-lg mb-2"
                   style={{
                     border: `1px solid ${colors.lightGray}`,
                     backgroundColor:
                       colors.white,
                   }}
                 >
-                  <input
-                    type="text"
-                    value={event.name}
-                    readOnly={!isLocal}
-                    onChange={(e) =>
-                      handleUpdateEventField(
-                        event.id,
-                        'name',
-                        e.target.value
-                      )
-                    }
-                    className="flex-1 outline-none border-none bg-transparent text-base"
-                    style={{
-                      color: colors.black,
-                    }}
-                  />
-
-                  {isLocal && (
-                    <button
-                      onClick={() =>
-                        handleDeleteEvent(
-                          event.id
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      value={event.name}
+                      readOnly={!isLocal}
+                      onChange={(e) =>
+                        handleUpdateEventField(
+                          event.id,
+                          'name',
+                          e.target.value
                         )
                       }
-                      className="bg-transparent border-none cursor-pointer p-1"
+                      className="flex-1 outline-none border-none bg-transparent text-base"
                       style={{
-                        color:
-                          colors.secondaryText,
+                        color: colors.black,
                       }}
-                    >
-                      <X size={18} />
-                    </button>
-                  )}
+                    />
 
-                  {isLocal ? (
-                    event.event_type ===
-                      'regular' && (
-                      <SchedulePopover
-                        open={
-                          openScheduleId ===
-                          event.id
-                        }
-                        onOpenChange={(value) =>
-                          setOpenScheduleId(
-                            value
-                              ? event.id
-                              : null
+                    {isLocal && (
+                      <button
+                        onClick={() =>
+                          handleDeleteEvent(
+                            event.id
                           )
                         }
-                        periodicity={capitalize(
-                          event.periodicity
-                        )}
-                        date={
-                          event.start_date ||
-                          ''
-                        }
-                        onPeriodicityChange={(
-                          value
-                        ) =>
-                          handleUpdateEventField(
-                            event.id,
-                            'periodicity',
+                        className="bg-transparent border-none cursor-pointer p-1"
+                        style={{
+                          color:
+                            colors.secondaryText,
+                        }}
+                      >
+                        <X size={18} />
+                      </button>
+                    )}
+
+                    {isLocal ? (
+                      event.event_type ===
+                        'regular' && (
+                        <SchedulePopover
+                          open={
+                            openScheduleId ===
+                            event.id
+                          }
+                          onOpenChange={(value) =>
+                            setOpenScheduleId(
+                              value
+                                ? event.id
+                                : null
+                            )
+                          }
+                          periodicity={capitalize(
+                            event.periodicity
+                          )}
+                          date={
+                            event.start_date ||
+                            ''
+                          }
+                          onPeriodicityChange={(
                             value
-                          )
-                        }
-                        onDateChange={(value) =>
-                          handleUpdateEventField(
-                            event.id,
-                            'start_date',
-                            value
-                          )
-                        }
-                        options={[
-                          '',
-                          ...periodicityOptions,
-                        ]}
-                        buttonClassName="w-9 h-9"
-                      />
-                    )
-                  ) : (
-                    <span
-                      className="text-sm whitespace-nowrap flex-shrink-0"
+                          ) =>
+                            handleUpdateEventField(
+                              event.id,
+                              'periodicity',
+                              value
+                            )
+                          }
+                          onDateChange={(value) =>
+                            handleUpdateEventField(
+                              event.id,
+                              'start_date',
+                              value
+                            )
+                          }
+                          options={[
+                            '',
+                            ...periodicityOptions,
+                          ]}
+                          buttonClassName="w-9 h-9"
+                        />
+                      )
+                    ) : (
+                      <span
+                        className="text-sm whitespace-nowrap flex-shrink-0"
+                        style={{
+                          color:
+                            colors.secondaryText,
+                        }}
+                      >
+                        {event.event_type ===
+                        'regular'
+                          ? 'регулярное'
+                          : 'нерегулярное'}
+                      </span>
+                    )}
+
+                    <button
+                      type="button"
+                      onClick={() =>
+                        selectedElementId &&
+                        toggleEventSelection(event.id)
+                      }
+                      disabled={!selectedElementId}
+                      className="w-5 h-5 rounded-md flex items-center justify-center flex-shrink-0 transition-all"
                       style={{
-                        color:
-                          colors.secondaryText,
-                      }}
-                    >
-                      {event.event_type ===
-                      'regular'
-                        ? 'регулярное'
-                        : 'нерегулярное'}
-                    </span>
-                  )}
-
-                  <button
-                    type="button"
-                    onClick={() =>
-                      selectedElementId &&
-                      toggleEventSelection(event.id)
-                    }
-                    disabled={!selectedElementId}
-                    className="w-5 h-5 rounded-md flex items-center justify-center flex-shrink-0 transition-all"
-                    style={{
-                      backgroundColor: isLinked
-                        ? colors.primary
-                        : colors.white,
-                      border: `1.5px solid ${
-                        isLinked
+                        backgroundColor: isLinked
                           ? colors.primary
-                          : colors.secondaryText
-                      }`,
-                      cursor: selectedElementId
-                        ? 'pointer'
-                        : 'not-allowed',
-                      opacity: selectedElementId ? 1 : 0.5,
-                    }}
-                    title={
-                      isLinked
-                        ? 'Отвязать от элемента'
-                        : 'Привязать к элементу'
-                    }
-                  >
-                    {isLinked && (
-                      <Check
-                        size={14}
-                        strokeWidth={3}
-                        color={colors.white}
+                          : colors.white,
+                        border: `1.5px solid ${
+                          isLinked
+                            ? colors.primary
+                            : colors.secondaryText
+                        }`,
+                        cursor: selectedElementId
+                          ? 'pointer'
+                          : 'not-allowed',
+                        opacity: selectedElementId ? 1 : 0.5,
+                      }}
+                      title={
+                        isLinked
+                          ? 'Отвязать от элемента'
+                          : 'Привязать к элементу'
+                      }
+                    >
+                      {isLinked && (
+                        <Check
+                          size={14}
+                          strokeWidth={3}
+                          color={colors.white}
+                        />
+                      )}
+                    </button>
+                  </div>
+
+                  {isIrregularEvent &&
+                    isLocal && (
+                      <input
+                        type="text"
+                        value={
+                          event.description || ''
+                        }
+                        onChange={(e) =>
+                          handleUpdateEventField(
+                            event.id,
+                            'description',
+                            e.target.value
+                          )
+                        }
+                        placeholder="Описание"
+                        className="w-full mt-1.5 outline-none border-none bg-transparent text-sm"
+                        style={{
+                          color:
+                            colors.secondaryText,
+                        }}
                       />
                     )}
-                  </button>
+
+                  {isIrregularEvent &&
+                    !isLocal &&
+                    event.description && (
+                      <p
+                        className="mt-1.5 text-sm"
+                        style={{
+                          color:
+                            colors.secondaryText,
+                        }}
+                      >
+                        {event.description}
+                      </p>
+                    )}
                 </div>
               );
             })
